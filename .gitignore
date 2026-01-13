@@ -1,0 +1,43 @@
+# See https://help.github.com/articles/ignoring-files for more about ignoring files.
+# dependencies
+/node_modules
+/.pnp
+/.pnp.cache
+
+# testing
+/coverage
+
+# environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# build
+/build
+/dist
+
+# logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Editor related
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Package lock files (you might choose to keep one of these)
+package-lock.json
+yarn.lock
+
+# TypeScript output
+/out
+/lib
