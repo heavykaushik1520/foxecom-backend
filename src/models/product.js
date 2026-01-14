@@ -7,9 +7,9 @@ const Product = sequelize.define(
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement:true
+      autoIncrement: true
     },
-    title: { type: DataTypes.TEXT, allowNull: false },
+    title: { type: DataTypes.STRING, allowNull: false },
     categoryId: { type: DataTypes.INTEGER, allowNull: false },
     price: {
       type: DataTypes.DECIMAL(10, 2),
@@ -29,19 +29,21 @@ const Product = sequelize.define(
     },
     stock: {
       type: DataTypes.INTEGER,
-      allowNull : true,
+      allowNull: true,
+
     },
-    sku:{
+
+    sku: {
       type: DataTypes.STRING,
-      allowNull:true
+      allowNull: true
     },
-    thumbnailImage:{
-       type: DataTypes.STRING, 
-       allowNull: false ,
+    thumbnailImage: {
+      type: DataTypes.STRING,
+      allowNull: false,
     },
-    
+
     description: { type: DataTypes.TEXT },
-    stock:{ type: DataTypes.INTEGER, allowNull: true },
+
   },
   {
     tableName: "products",

@@ -1,101 +1,108 @@
 // src/controllers/productController.js
-const upload = require("../middleware/upload"); 
+// const upload = require("../middleware/upload"); // Removed as middleware is now route-level
+const { Op } = require("sequelize");
+
 const { Product, ProductImage, Category } = require("../models"); // Import from index.js
 const { Sequelize } = require("sequelize");
 
 async function createProduct(req, res) {
     try {
-        upload(req, res, async (err) => {
-            if (err) {
-                console.error("Multer Error:", err);
-                return res.status(400).json({ message: "File upload error", error: err.message || err });
-            }
-            try {
-                const { categoryId, caption, name, price, description, description1, weight, netQuantity, extraDescrption } = req.body;
-                const files = req.files;
-                
-                // Enhanced validation
-                if (!categoryId) {
-                    return res.status(400).json({ message: "Category ID is required." });
-                }
-                if (!name || typeof name !== "string" || !name.trim()) {
-                    return res.status(400).json({ message: "Product name is required and must be a non-empty string." });
-                }
-                if (!caption || typeof caption !== "string" || !caption.trim()) {
-                    return res.status(400).json({ message: "Product caption is required and must be a non-empty string." });
-                }
-                if (!price || isNaN(price) || parseFloat(price) < 0) {
-                    return res.status(400).json({ message: "Valid price is required and must be a non-negative number." });
-                }
-                
-                // Check if category exists
-                const category = await Category.findByPk(categoryId);
-                if (!category) {
-                    return res.status(400).json({ message: "Invalid category ID. Category does not exist." });
-                }
-                
-                // Check if product with same name already exists in this category
-                const existingProduct = await Product.findOne({ 
-                    where: { 
-                        name: name.trim(),
-                        categoryId: categoryId 
-                    } 
-                });
-                if (existingProduct) {
-                    return res.status(409).json({ message: "Product with this name already exists in this category." });
-                }
-                
-                if (!files || files.length < 2 || files.length > 5) {
-                    return res.status(400).json({ message: "Product must have between 2 and 5 images." });
-                }
-                
-                const productData = {
-                    name: name.trim(),
-                    caption: caption.trim(),
-                    categoryId: parseInt(categoryId),
-                    price: parseFloat(price),
-                    description: description || null,
-                    description1: description1 || null,
-                    weight: weight ? parseFloat(weight) : null,
-                    netQuantity: netQuantity ? parseInt(netQuantity) : null,
-                    extraDescrption: extraDescrption || null
-                };
-                
-                const newProduct = await Product.create(productData);
-                
-                if (files && files.length > 0) {
-                    const imageRecords = files.map((file) => ({
-                        imageUrl: `/uploads/images/${file.filename}`,
-                        productId: newProduct.id,
-                    }));
-                    await ProductImage.bulkCreate(imageRecords);
-                }
-                
-                const productWithImages = await Product.findByPk(newProduct.id, {
-                    include: [
-                        { model: ProductImage, as: "images" },
-                        { model: Category, as: "category" },
-                    ],
-                });
-                
-                res.status(201).json({
-                    message: "Product created successfully",
-                    product: productWithImages
-                });
-            } catch (error) {
-                console.error("Error creating product:", error);
-                if (error.name === 'SequelizeUniqueConstraintError') {
-                    return res.status(409).json({ message: "Product with this name already exists in this category." });
-                }
-                if (error.name === 'SequelizeForeignKeyConstraintError') {
-                    return res.status(400).json({ message: "Invalid category ID. Category does not exist." });
-                }
-                res.status(500).json({ message: "Failed to create product", error: error.message });
+        // Files are already handled by middleware
+        const {
+            categoryId,
+            title,
+            price,
+            discountPrice,
+            stock,
+            description,
+            sku
+        } = req.body;
+
+        // req.files is now an object: { thumbnailImage: [...], images: [...] }
+        const thumbnailFile = req.files?.['thumbnailImage']?.[0];
+        const galleryFiles = req.files?.['images'];
+
+        // Enhanced validation
+        if (!categoryId) {
+            return res.status(400).json({ message: "Category ID is required." });
+        }
+        if (!title || typeof title !== "string" || !title.trim()) {
+            return res.status(400).json({ message: "Product title is required." });
+        }
+
+        if (!price || isNaN(price) || parseFloat(price) < 0) {
+            return res.status(400).json({ message: "Valid price is required and must be a non-negative number." });
+        }
+
+        // Thumbnail is required
+        if (!thumbnailFile) {
+            return res.status(400).json({ message: "Thumbnail image is required." });
+        }
+
+        // Check if category exists
+        const category = await Category.findByPk(categoryId);
+        if (!category) {
+            return res.status(400).json({ message: "Invalid category ID. Category does not exist." });
+        }
+
+        // Check if product with same name already exists in this category
+        const existingProduct = await Product.findOne({
+            where: {
+                title: title.trim(),
+                categoryId: categoryId
             }
         });
+        if (existingProduct) {
+            return res.status(409).json({ message: "Product with this name already exists in this category." });
+        }
+
+        if (!galleryFiles || galleryFiles.length < 2 || galleryFiles.length > 11) {
+            return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
+        }
+
+        const productData = {
+            title: title.trim(),
+            categoryId: parseInt(categoryId),
+            price: parseFloat(price),
+            discountPrice: discountPrice ? parseFloat(discountPrice) : null,
+            stock: stock ? parseInt(stock) : null,
+            sku: sku || null,
+            description: description || null,
+            thumbnailImage: `/uploads/images/${thumbnailFile.filename}`
+        };
+
+
+        const newProduct = await Product.create(productData);
+
+        if (galleryFiles && galleryFiles.length > 0) {
+            const imageRecords = galleryFiles.map((file) => ({
+                imageUrl: `/uploads/images/${file.filename}`,
+                productId: newProduct.id,
+            }));
+            await ProductImage.bulkCreate(imageRecords);
+        }
+
+        const productWithImages = await Product.findByPk(newProduct.id, {
+            include: [
+                { model: ProductImage, as: "images" },
+                { model: Category, as: "category" },
+            ],
+        });
+
+        res.status(201).json({
+            message: "Product created successfully",
+            product: productWithImages
+        });
+
     } catch (error) {
         console.error("Unexpected error in createProduct:", error);
-        res.status(500).json({ message: "Unexpected error in createProduct", error: error.message });
+        if (error.name === 'SequelizeUniqueConstraintError') {
+            return res.status(409).json({ message: "Product with this name already exists in this category." });
+        }
+        if (error.name === 'SequelizeForeignKeyConstraintError') {
+            return res.status(400).json({ message: "Invalid category ID. Category does not exist." });
+        }
+        res.status(500).json({ message: "Failed to create product", error: error.message });
     }
 }
 
@@ -119,64 +126,82 @@ async function getProductById(req, res) {
 }
 
 // Update an existing product by ID (ADMIN ONLY)
-
-
 async function updateProduct(req, res) {
     try {
-        upload(req, res, async (err) => {
-            if (err) {
-                console.error("Multer Error:", err);
-                return res.status(400).json({ message: "File upload error", error: err.message || err });
+        const { id } = req.params;
+
+        const product = await Product.findByPk(id);
+        if (!product) {
+            return res.status(404).json({ message: "Product not found" });
+        }
+        const { imagesToDelete, categoryId, caption, ...productData } = req.body;
+
+        const thumbnailFile = req.files?.['thumbnailImage']?.[0];
+        const galleryFiles = req.files?.['images'];
+
+
+
+
+        try {
+            if (productData.price && productData.price < 0) {
+                return res.status(400).json({ message: "Price cannot be negative." });
             }
-            const { id } = req.params;
-            const { imagesToDelete, categoryId, caption,  ...productData } = req.body;
-            const files = req.files;
-            try {
-                if (productData.price && productData.price < 0) {
-                    return res.status(400).json({ message: "Price cannot be negative." });
-                }
-                const updatePayload = { ...productData };
-                if (categoryId) updatePayload.categoryId = categoryId;
-                if (typeof caption === 'string') updatePayload.caption = caption;
-                const [updatedRows] = await Product.update(updatePayload, {
-                    where: { id: id },
-                });
-                if (updatedRows === 0) {
-                    return res.status(404).json({ message: "Product not found" });
-                }
-                // Enforce images between 2 and 5 after applying deletions/additions
-                if (files && files.length > 0) {
-                    const imageRecords = files.map((file) => ({
-                        imageUrl: `/uploads/images/${file.filename}`,
-                        productId: id,
-                    }));
-                    await ProductImage.bulkCreate(imageRecords);
-                }
-                if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
-                    await ProductImage.destroy({
-                        where: {
-                            id: imagesToDelete,
-                            productId: id
-                        },
-                    });
-                }
-                // Count final images and validate
-                const finalImageCount = await ProductImage.count({ where: { productId: id } });
-                if (finalImageCount < 2 || finalImageCount > 5) {
-                    return res.status(400).json({ message: "Product must have between 2 and 5 images." });
-                }
-                const updatedProduct = await Product.findByPk(id, {
-                    include: [
-                        { model: ProductImage, as: "images" },
-                        { model: Category, as: "category" },
-                    ],
-                });
-                return res.status(200).json(updatedProduct);
-            } catch (error) {
-                console.error(`Error updating product with ID ${id}:`, error);
-                res.status(500).json({ message: "Failed to update product", error: error.message });
+
+            const updatePayload = { ...productData };
+            if (categoryId) updatePayload.categoryId = categoryId;
+            if (typeof caption === 'string') updatePayload.caption = caption;
+
+            // Update thumbnail if provided
+            if (thumbnailFile) {
+                updatePayload.thumbnailImage = `/uploads/images/${thumbnailFile.filename}`;
             }
-        });
+
+            const [updatedRows] = await Product.update(updatePayload, {
+                where: { id: id },
+            });
+
+            // If rows updated is 0, check if product exists (if it doesn't, return 404)
+            // Note: If fields didn't change, update usually returns 0 in some seq configs, but mostly 1 or 0
+            // We'll trust findByPk check below implicitly or check before update.
+            // Let's check existence first if strictly needed, but let's assume if update went through without error it's fine.
+            // Actually, we need to know if it existed for 404.
+            const productExists = await Product.findByPk(id);
+            if (!productExists) {
+                return res.status(404).json({ message: "Product not found" });
+            }
+
+            // Enforce images between 2 and 5 after applying deletions/additions
+            if (galleryFiles && galleryFiles.length > 0) {
+                const imageRecords = galleryFiles.map((file) => ({
+                    imageUrl: `/uploads/images/${file.filename}`,
+                    productId: id,
+                }));
+                await ProductImage.bulkCreate(imageRecords);
+            }
+            if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
+                await ProductImage.destroy({
+                    where: {
+                        id: imagesToDelete,
+                        productId: id
+                    },
+                });
+            }
+            // Count final images and validate
+            const finalImageCount = await ProductImage.count({ where: { productId: id } });
+            if (finalImageCount < 2 || finalImageCount > 11) {
+                return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
+            }
+            const updatedProduct = await Product.findByPk(id, {
+                include: [
+                    { model: ProductImage, as: "images" },
+                    { model: Category, as: "category" },
+                ],
+            });
+            return res.status(200).json(updatedProduct);
+        } catch (error) {
+            console.error(`Error updating product with ID ${id}:`, error);
+            res.status(500).json({ message: "Failed to update product", error: error.message });
+        }
     } catch (error) {
         console.error("Unexpected error in updateProduct:", error);
         res.status(500).json({ message: "Unexpected error in updateProduct", error: error.message });
@@ -187,7 +212,7 @@ async function updateProduct(req, res) {
 async function deleteProduct(req, res) {
     try {
         const { id } = req.params;
-        
+
         // Check if product exists
         const product = await Product.findByPk(id, {
             include: [
@@ -195,20 +220,17 @@ async function deleteProduct(req, res) {
                 { model: Category, as: "category" },
             ],
         });
-        
+
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
-        
-        // Check if product is in any active orders (optional business logic)
-        // You can add this check if needed
-        
+
         const deletedRows = await Product.destroy({
             where: { id: id },
         });
-        
+
         if (deletedRows > 0) {
-            return res.status(200).json({ 
+            return res.status(200).json({
                 message: "Product deleted successfully",
                 deletedProduct: {
                     id: product.id,
@@ -232,9 +254,11 @@ async function searchProductsByName(req, res) {
             return res.status(400).json({ message: "Please provide a search term." });
         }
         const products = await Product.findAll({
-            where: Sequelize.literal(
-                `LOWER(products.name) LIKE '%${name.toLowerCase()}%'`
-            ),
+            where: {
+                title: {
+                    [Op.iLike || Op.like]: `%${name}%`
+                }
+            },
             include: [
                 { model: ProductImage, as: "images" },
                 { model: Category, as: "category" },
@@ -259,7 +283,7 @@ async function getAllProducts(req, res) {
         if (categoryId) {
             where.categoryId = categoryId;
         }
-        let order = [['createdAt', 'DESC']];
+        let order = [['createdAt', 'ASC']];
         if (priceOrder && ['asc', 'desc'].includes(String(priceOrder).toLowerCase())) {
             order = [['price', String(priceOrder).toUpperCase()]];
         }
@@ -286,12 +310,12 @@ async function getAllProducts(req, res) {
 }
 
 module.exports = {
-  createProduct,
-  getAllProducts,
-  getProductById,
-  updateProduct,
-  deleteProduct,
-  searchProductsByName,
-  // filter uses same handler as getAllProducts; kept separate for explicit route
-  filterProducts: async function(req, res) { return getAllProducts(req, res); },
+    createProduct,
+    getAllProducts,
+    getProductById,
+    updateProduct,
+    deleteProduct,
+    searchProductsByName,
+    // filter uses same handler as getAllProducts; kept separate for explicit route
+    filterProducts: async function (req, res) { return getAllProducts(req, res); },
 };

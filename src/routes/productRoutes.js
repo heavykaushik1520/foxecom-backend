@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { isAdmin } = require('../middleware/authMiddleware'); // Import isAdmin middleware
+const productUpload = require('../middleware/productUpload'); // Import productUpload middleware
 const {
   createProduct,
   getAllProducts,
@@ -20,8 +21,8 @@ router.get('/products/search', searchProductsByName);
 router.get('/products/:id', getProductById);
 
 // Admin-only routes (authentication required)
-router.post('/products', isAdmin, createProduct);
-router.put('/products/:id', isAdmin, updateProduct);
+router.post('/products', isAdmin, productUpload, createProduct);
+router.put('/products/:id', isAdmin, productUpload, updateProduct);
 router.delete('/products/:id', isAdmin, deleteProduct);
 
 module.exports = router;

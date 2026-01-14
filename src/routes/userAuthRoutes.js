@@ -17,7 +17,7 @@ router.post("/signup", signupUser);
 router.post("/signin", signinUser);
 router.post("/signout", signoutUser);
 
-router.get("/me", isUser, isUser , getCurrentUser);
+router.get("/me", isUser, getCurrentUser);
 router.post("/refresh-token", isUser, refreshToken);
 
 router.post('/forgot-password', forgotPassword);
