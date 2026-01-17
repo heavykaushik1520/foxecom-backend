@@ -1,48 +1,55 @@
 // src/controllers/adminDashboardController.js
 const { Category, Product, User, Order, Cart, CartItem } = require("../models");
+const { Sequelize, Op } = require("sequelize");
 
 // Get admin dashboard statistics
 async function getDashboardStats(req, res) {
   try {
-    const [
-      totalCategories,
-      totalProducts,
-      totalUsers,
-      totalOrders,
-      totalRevenue,
-      categoriesWithProducts,
-      recentProducts,
-      recentOrders
-    ] = await Promise.all([
+    // Get basic counts
+    const [totalCategories, totalProducts, totalUsers, totalOrders] = await Promise.all([
       Category.count(),
       Product.count(),
       User.count(),
-      Order.count(),
-      Order.sum('totalAmount') || 0,
-      Category.findAll({
-        include: [{
-          model: Product,
-          as: 'products',
-          attributes: ['id']
-        }],
-        attributes: ['id', 'name']
-      }),
-      Product.findAll({
-        limit: 5,
-        order: [['createdAt', 'DESC']],
-        include: [
-          { model: Category, as: 'category', attributes: ['name'] },
-          { model: require('../models').ProductImage, as: 'images', limit: 1 }
-        ]
-      }),
-      Order.findAll({
-        limit: 5,
-        order: [['createdAt', 'DESC']],
-        include: [
-          { model: User, as: 'user', attributes: ['name', 'email'] }
-        ]
-      })
+      Order.count()
     ]);
+
+    // Calculate total revenue
+    const revenueResult = await Order.findAll({
+      attributes: [[Sequelize.fn('SUM', Sequelize.col('totalAmount')), 'total']],
+      raw: true
+    });
+    const totalRevenue = parseFloat(revenueResult[0]?.total || 0);
+
+    // Get categories with products
+    const categoriesWithProducts = await Category.findAll({
+      include: [{
+        model: Product,
+        as: 'products',
+        attributes: ['id'],
+        required: false
+      }],
+      attributes: ['id', 'name']
+    });
+
+    // Get recent products
+    const ProductImage = require('../models').ProductImage;
+    const recentProducts = await Product.findAll({
+      limit: 5,
+      order: [['createdAt', 'DESC']],
+      include: [
+        { model: Category, as: 'category', attributes: ['name'], required: false },
+        { model: ProductImage, as: 'images', limit: 1, required: false }
+      ]
+    });
+
+    // Get recent orders
+    const recentOrders = await Order.findAll({
+      limit: 5,
+      order: [['createdAt', 'DESC']],
+      include: [
+        { model: User, as: 'user', attributes: ['name', 'email'], required: false }
+      ]
+    });
 
     // Calculate category statistics
     const categoryStats = categoriesWithProducts.map(category => ({
@@ -51,23 +58,36 @@ async function getDashboardStats(req, res) {
       productCount: category.products ? category.products.length : 0
     }));
 
-    // Calculate monthly revenue (last 6 months)
+    // Calculate monthly revenue (last 6 months) - simplified for cross-database compatibility
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     
-    const monthlyRevenue = await Order.findAll({
+    // Get all orders from last 6 months and calculate monthly totals in JavaScript
+    const recentOrdersForRevenue = await Order.findAll({
       where: {
         createdAt: {
-          [require('sequelize').Op.gte]: sixMonthsAgo
+          [Op.gte]: sixMonthsAgo
         }
       },
-      attributes: [
-        [require('sequelize').fn('DATE_TRUNC', 'month', require('sequelize').col('createdAt')), 'month'],
-        [require('sequelize').fn('SUM', require('sequelize').col('totalAmount')), 'revenue']
-      ],
-      group: [require('sequelize').fn('DATE_TRUNC', 'month', require('sequelize').col('createdAt'))],
-      order: [[require('sequelize').fn('DATE_TRUNC', 'month', require('sequelize').col('createdAt')), 'ASC']]
+      attributes: ['createdAt', 'totalAmount'],
+      order: [['createdAt', 'ASC']]
     });
+
+    // Group by month manually for cross-database compatibility
+    const monthlyRevenueMap = {};
+    recentOrdersForRevenue.forEach(order => {
+      const monthKey = new Date(order.createdAt).toISOString().slice(0, 7); // YYYY-MM format
+      if (!monthlyRevenueMap[monthKey]) {
+        monthlyRevenueMap[monthKey] = 0;
+      }
+      monthlyRevenueMap[monthKey] += parseFloat(order.totalAmount || 0);
+    });
+
+    // Convert to array format
+    const monthlyRevenue = Object.keys(monthlyRevenueMap).map(month => ({
+      month,
+      revenue: monthlyRevenueMap[month]
+    })).sort((a, b) => a.month.localeCompare(b.month));
 
     res.status(200).json({
       stats: {
@@ -78,9 +98,9 @@ async function getDashboardStats(req, res) {
         totalRevenue: parseFloat(totalRevenue) || 0
       },
       categoryStats,
-      recentProducts,
-      recentOrders,
-      monthlyRevenue
+      recentProducts: recentProducts || [],
+      recentOrders: recentOrders || [],
+      monthlyRevenue: monthlyRevenue || []
     });
   } catch (error) {
     console.error("Error fetching dashboard stats:", error);
@@ -184,9 +204,9 @@ async function getAllUsers(req, res) {
     
     const where = {};
     if (search) {
-      where[require('sequelize').Op.or] = [
-        { name: { [require('sequelize').Op.iLike]: `%${search}%` } },
-        { email: { [require('sequelize').Op.iLike]: `%${search}%` } }
+      where[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } }
       ];
     }
 

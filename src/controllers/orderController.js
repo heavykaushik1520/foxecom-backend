@@ -273,10 +273,10 @@ async function getOrderById(req, res) {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    if (!id || !validateUUID(id)) {
+    if (!id || isNaN(parseInt(id))) {
       return res
         .status(400)
-        .json({ message: "Invalid or missing order id (must be UUID)." });
+        .json({ message: "Invalid or missing order id." });
     }
 
     const order = await Order.findOne({
@@ -345,10 +345,10 @@ async function cancelOrder(req, res) {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    if (!id || !validateUUID(id)) {
+    if (!id || isNaN(parseInt(id))) {
       return res
         .status(400)
-        .json({ message: "Invalid or missing order id (must be UUID)." });
+        .json({ message: "Invalid or missing order id." });
     }
 
     const order = await Order.findOne({

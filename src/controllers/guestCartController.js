@@ -1,6 +1,7 @@
 // src/controllers/guestCartController.js
-const { Cart, CartItem, Product, ProductImage } = require("../models");
+const { Cart, CartItem, Product, ProductImage, Category } = require("../models");
 const { Op } = require("sequelize");
+const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 // Get or Create Guest Cart
 async function getGuestCart(req, res) {
     const { guestCartId } = req.params;
@@ -9,28 +10,7 @@ async function getGuestCart(req, res) {
     try {
         let cart;
         if (guestCartId) {
-            cart = await Cart.findOne({
-                where: { guestCartId: guestCartId },
-                include: [
-                    {
-                        model: Product,
-                        as: "products",
-                        through: {
-                            model: CartItem,
-                            as: "cartItem",
-                            attributes: ["quantity"],
-                        },
-                        include: [
-                            {
-                                model: ProductImage,
-                                as: "images", // Corrected alias: "images"
-                                attributes: ["imageUrl"],
-                                limit: 1
-                            }
-                        ]
-                    },
-                ],
-            });
+            cart = await fetchGuestCartWithProducts(guestCartId);
             if (!cart) {
                 return res.status(404).json({ message: "Guest cart not found." });
             }
@@ -57,10 +37,27 @@ async function addToGuestCart(req, res) {
         const { guestCartId } = req.params;
         const { productId, quantity } = req.body;
 
-        const qtyToAdd = quantity && Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+        // Improved validation with specific error messages
+        if (!guestCartId) {
+            return res.status(400).json({ 
+                message: "Invalid request data. Guest Cart ID is required in the URL path.", 
+                received: { guestCartId: req.params.guestCartId }
+            });
+        }
 
-        if (!guestCartId || !productId || typeof productId !== "string") {
-            return res.status(400).json({ message: "Invalid request data. Guest Cart ID and Product ID are required." });
+        if (!productId) {
+            return res.status(400).json({ 
+                message: "Invalid request data. Product ID is required in the request body.", 
+                received: { productId: req.body.productId }
+            });
+        }
+
+        const qtyToAdd = quantity && Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+        
+        // Convert productId to integer if it's a string
+        const parsedProductId = parseInt(productId);
+        if (isNaN(parsedProductId)) {
+            return res.status(400).json({ message: "Invalid Product ID. Must be a valid number." });
         }
 
         let cart = await Cart.findOne({ where: { guestCartId: guestCartId } });
@@ -69,18 +66,18 @@ async function addToGuestCart(req, res) {
             return res.status(404).json({ message: "Guest cart not found. Please create one first." });
         }
 
-        const product = await Product.findByPk(productId);
+        const product = await Product.findByPk(parsedProductId);
         if (!product) {
             return res.status(404).json({ message: "Product not found." });
         }
 
-        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: productId } });
+        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: parsedProductId } });
 
         if (cartItem) {
             cartItem.quantity += qtyToAdd;
             await cartItem.save();
         } else {
-            await CartItem.create({ cartId: cart.id, productId: productId, quantity: qtyToAdd });
+            await CartItem.create({ cartId: cart.id, productId: parsedProductId, quantity: qtyToAdd });
         }
 
         const updatedCart = await fetchGuestCartWithProducts(guestCartId);
@@ -98,8 +95,14 @@ async function updateGuestCartItem(req, res) {
         const { guestCartId } = req.params;
         const { productId, quantity } = req.body;
 
-        if (!guestCartId || !productId || typeof productId !== "string") {
+        if (!guestCartId || !productId) {
             return res.status(400).json({ message: "Invalid request data." });
+        }
+        
+        // Convert productId to integer if it's a string
+        const parsedProductId = parseInt(productId);
+        if (isNaN(parsedProductId)) {
+            return res.status(400).json({ message: "Invalid Product ID. Must be a valid number." });
         }
 
         if (!quantity || typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1) {
@@ -111,7 +114,7 @@ async function updateGuestCartItem(req, res) {
             return res.status(404).json({ message: "Guest cart not found." });
         }
 
-        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: productId } });
+        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: parsedProductId } });
 
         if (cartItem) {
             cartItem.quantity = quantity;
@@ -130,7 +133,7 @@ async function updateGuestCartItem(req, res) {
 }
 
 async function fetchGuestCartWithProducts(guestCartId) {
-    return await Cart.findOne({
+    const cart = await Cart.findOne({
         where: { guestCartId: guestCartId },
         include: [
             {
@@ -147,11 +150,22 @@ async function fetchGuestCartWithProducts(guestCartId) {
                         as: "images",
                         attributes: ["imageUrl"],
                         limit: 1
+                    },
+                    {
+                        model: Category,
+                        as: "category"
                     }
                 ]
             },
         ],
     });
+    
+    // Add category-specific details to cart products
+    if (cart && cart.products) {
+        cart.products = await addCategorySpecificDetailsToProducts(cart.products);
+    }
+    
+    return cart;
 }
 
 async function deleteGuestCartItem(req, res) {

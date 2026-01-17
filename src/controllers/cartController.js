@@ -1,10 +1,11 @@
 // src/controllers/cartController.js
 
-const { Cart, CartItem, Product , ProductImage} = require("../models");
+const { Cart, CartItem, Product, ProductImage, Category } = require("../models");
+const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 // Helper function to fetch cart with products
 async function getCartWithProducts(userId) {
-  return await Cart.findOne({
+  const cart = await Cart.findOne({
     where: { userId: userId },
     include: [
       {
@@ -22,10 +23,21 @@ async function getCartWithProducts(userId) {
             attributes: ["imageUrl"],
             limit: 1, 
           },
+          {
+            model: Category,
+            as: "category"
+          }
         ],
       },
     ],
   });
+  
+  // Add category-specific details to cart products
+  if (cart && cart.products) {
+    cart.products = await addCategorySpecificDetailsToProducts(cart.products);
+  }
+  
+  return cart;
 }
 
 // Get the cart for the logged-in user

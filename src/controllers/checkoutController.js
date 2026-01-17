@@ -1,6 +1,7 @@
 // src/controllers/checkoutController.js
 
-const { Cart, CartItem, Product, ProductImage, Order, OrderItem } = require("../models");
+const { Cart, CartItem, Product, ProductImage, Order, OrderItem, Category } = require("../models");
+const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 
 // Get checkout summary (cart validation + total calculation)
@@ -27,10 +28,19 @@ async function getCheckoutSummary(req, res) {
               attributes: ["imageUrl"],
               limit: 1,
             },
+            {
+              model: Category,
+              as: "category"
+            }
           ],
         },
       ],
     });
+    
+    // Add category-specific details to cart products
+    if (cart && cart.products) {
+      cart.products = await addCategorySpecificDetailsToProducts(cart.products);
+    }
 
     if (!cart || !cart.products || cart.products.length === 0) {
       return res.status(400).json({
@@ -84,10 +94,10 @@ async function getCheckoutSummary(req, res) {
         totalAmount: finalTotal.toFixed(2),
         products: cart.products.map(product => ({
           id: product.id,
-          name: product.name,
+          title: product.title,
           price: product.price,
           quantity: product.cartItem.quantity,
-          image: product.images?.[0]?.imageUrl || null,
+          image: product.images?.[0]?.imageUrl || product.thumbnailImage || null,
           total: (parseFloat(product.price) * product.cartItem.quantity).toFixed(2)
         }))
       }

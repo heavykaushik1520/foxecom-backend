@@ -2,8 +2,9 @@
 // const upload = require("../middleware/upload"); // Removed as middleware is now route-level
 const { Op } = require("sequelize");
 
-const { Product, ProductImage, Category } = require("../models"); // Import from index.js
+const { Product, ProductImage, Category, CaseDetails, MobileBrands, MobileModels } = require("../models"); // Import from index.js
 const { Sequelize } = require("sequelize");
+const { addCategorySpecificDetails, addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 async function createProduct(req, res) {
     try {
@@ -109,16 +110,23 @@ async function createProduct(req, res) {
 async function getProductById(req, res) {
     try {
         const { id } = req.params;
+        
+        // First fetch product with basic associations
         const product = await Product.findByPk(id, {
             include: [
                 { model: ProductImage, as: "images" },
                 { model: Category, as: "category" },
             ],
         });
+        
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
-        res.status(200).json(product);
+        
+        // Add category-specific details (e.g., CaseDetails for mobile cases)
+        const productWithDetails = await addCategorySpecificDetails(product);
+        
+        res.status(200).json(productWithDetails);
     } catch (error) {
         console.error(`Error fetching product with ID ${req.params.id}:`, error);
         res.status(500).json({ message: "Failed to fetch product", error: error.message });
@@ -160,11 +168,6 @@ async function updateProduct(req, res) {
                 where: { id: id },
             });
 
-            // If rows updated is 0, check if product exists (if it doesn't, return 404)
-            // Note: If fields didn't change, update usually returns 0 in some seq configs, but mostly 1 or 0
-            // We'll trust findByPk check below implicitly or check before update.
-            // Let's check existence first if strictly needed, but let's assume if update went through without error it's fine.
-            // Actually, we need to know if it existed for 404.
             const productExists = await Product.findByPk(id);
             if (!productExists) {
                 return res.status(404).json({ message: "Product not found" });
@@ -256,7 +259,7 @@ async function searchProductsByName(req, res) {
         const products = await Product.findAll({
             where: {
                 title: {
-                    [Op.iLike || Op.like]: `%${name}%`
+                    [Op.like]: `%${name}%`
                 }
             },
             include: [
@@ -267,7 +270,11 @@ async function searchProductsByName(req, res) {
         if (products.length === 0) {
             return res.status(404).json({ message: `No products found matching "${name}"` });
         }
-        res.status(200).json(products);
+        
+        // Include category-specific details
+        const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
+        
+        res.status(200).json(productsWithDetails);
     } catch (error) {
         console.error("Error searching products by name:", error);
         res.status(500).json({ message: "Failed to search products", error: error.message });
@@ -297,11 +304,15 @@ async function getAllProducts(req, res) {
                 { model: Category, as: "category" },
             ],
         });
+        
+        // Add category-specific details to all products
+        const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
+        
         res.status(200).json({
             totalItems: count,
             totalPages: Math.ceil(count / limit),
             currentPage: parseInt(page),
-            products: products,
+            products: productsWithDetails,
         });
     } catch (error) {
         console.error("Error fetching all products with pagination:", error);
