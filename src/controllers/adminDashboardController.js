@@ -47,7 +47,7 @@ async function getDashboardStats(req, res) {
       limit: 5,
       order: [['createdAt', 'DESC']],
       include: [
-        { model: User, as: 'user', attributes: ['name', 'email'], required: false }
+        { model: User, as: 'user', attributes: ['id', 'email', 'role'], required: false }
       ]
     });
 
@@ -204,8 +204,8 @@ async function getAllUsers(req, res) {
     
     const where = {};
     if (search) {
+      // User model only has 'email' field, no 'name' field
       where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
         { email: { [Op.like]: `%${search}%` } }
       ];
     }
@@ -253,9 +253,9 @@ async function getUserProfile(req, res) {
       include: [
         {
           model: require('../models').OrderItem,
-          as: 'items',
+          as: 'orderItems',
           include: [
-            { model: require('../models').Product, as: 'product', attributes: ['id', 'name', 'price'] }
+            { model: require('../models').Product, as: 'product', attributes: ['id', 'title', 'price'] }
           ]
         }
       ]
@@ -284,9 +284,9 @@ async function getUserOrders(req, res) {
       include: [
         {
           model: require('../models').OrderItem,
-          as: 'items',
+          as: 'orderItems',
           include: [
-            { model: require('../models').Product, as: 'product', attributes: ['id', 'name', 'price'] }
+            { model: require('../models').Product, as: 'product', attributes: ['id', 'title', 'price'] }
           ]
         }
       ]

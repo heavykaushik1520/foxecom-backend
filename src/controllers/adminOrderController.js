@@ -5,7 +5,7 @@ const { Order, OrderItem, Product, User } = require('../models');
 async function getAllOrdersForAdmin(req, res) {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 1;  // 1 order per page as per your request
+    const limit = parseInt(req.query.limit) || 10;  // Default 10 orders per page
     const offset = (page - 1) * limit;
 
     const { count, rows: orders } = await Order.findAndCountAll({
@@ -21,7 +21,7 @@ async function getAllOrdersForAdmin(req, res) {
         {
           model: User,
           as: 'user',
-          attributes: ['name', 'email'],
+          attributes: ['id', 'email', 'role'],
         },
       ],
     });
@@ -57,7 +57,7 @@ async function getOrderById(req, res) {
         {
           model: User,
           as: 'user',
-          attributes: ['name', 'email'],
+          attributes: ['id', 'email', 'role'],
         },
       ],
     });

@@ -80,16 +80,6 @@ async function deleteUserMe(req, res) {
   }
 }
 
-module.exports = {
-  getAllUsers,
-  getUserByMe,
-  updateUserMe,
-  deleteUserMe,
-  getUserById,
-  updateUser,
-  deleteUser
-};
-
 async function getUserById(req, res) {
   try {
     const { id } = req.params;
@@ -153,3 +143,13 @@ async function deleteUser(req, res) {
     res.status(500).json({ message: "Failed to delete user.", error: error.message });
   }
 }
+
+module.exports = {
+  getAllUsers,
+  getUserByMe,
+  updateUserMe,
+  deleteUserMe,
+  getUserById,
+  updateUser,
+  deleteUser
+};

@@ -25,11 +25,25 @@ exports.shiprocketWebhook = async (req, res) => {
     // Optional: Log payload for debugging
     console.log(" Shiprocket Webhook Payload:", JSON.stringify(payload, null, 2));
 
-    // Update order status
-    const [updated] = await Order.update(
-      { shipmentStatus: current_status },
+    // Prepare update data
+    const updateData = { shipmentStatus: current_status };
+    if (awb) {
+      updateData.awbCode = awb;
+    }
+
+    // Update order status - try matching by shiprocketOrderId first, then by shipmentId
+    let [updated] = await Order.update(
+      updateData,
       { where: { shiprocketOrderId: order_id } }
     );
+    
+    // If not found by shiprocketOrderId, try shipmentId
+    if (updated === 0) {
+      [updated] = await Order.update(
+        updateData,
+        { where: { shipmentId: order_id } }
+      );
+    }
 
     if (updated === 0) {
       return res.status(404).json({ message: "Order not found with the given shiprocketOrderId." });

@@ -56,13 +56,25 @@ async function getCheckoutSummary(req, res) {
     let totalAmount = 0;
     let totalItems = 0;
 
+    // Get all cartItems to check for deleted products
+    const cartItems = await CartItem.findAll({ 
+      where: { cartId: cart.id },
+      attributes: ['productId']
+    });
+    const existingProductIds = cart.products
+      .filter(p => p !== null)
+      .map(p => p.id);
+    const deletedProductIds = cartItems
+      .map(item => item.productId)
+      .filter(id => !existingProductIds.includes(id));
+    
+    deletedProductIds.forEach(productId => {
+      unavailableProducts.push({ id: productId, name: "Product not found" });
+    });
+
+    // Calculate total for available products
     for (const product of cart.products) {
-      if (!product) {
-        unavailableProducts.push({
-          id: product.cartItem?.productId,
-          name: "Product not found"
-        });
-      } else {
+      if (product && product.cartItem) {
         const quantity = product.cartItem.quantity;
         const price = parseFloat(product.price);
         totalAmount += price * quantity;

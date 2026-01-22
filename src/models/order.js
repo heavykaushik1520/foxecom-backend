@@ -41,6 +41,7 @@ const Order = sequelize.define(
       allowNull: true,
       unique: true,
     },
+    shiprocketOrderId: { type: DataTypes.STRING, allowNull: true },
     shipmentId: { type: DataTypes.STRING, allowNull: true },
     awbCode: { type: DataTypes.STRING, allowNull: true },
     courierName: { type: DataTypes.STRING, allowNull: true },

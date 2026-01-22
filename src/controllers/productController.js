@@ -237,7 +237,7 @@ async function deleteProduct(req, res) {
                 message: "Product deleted successfully",
                 deletedProduct: {
                     id: product.id,
-                    name: product.name,
+                    title: product.title,
                     category: product.category ? product.category.name : null
                 }
             });

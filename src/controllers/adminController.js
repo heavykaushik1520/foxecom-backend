@@ -74,7 +74,7 @@ async function updateAdmin(req, res) {
     }
     try {
       const [updatedRows] = await Admin.update(updateData, {
-        where: { admin_id: id },
+        where: { id: id },
       });
       if (updatedRows > 0) {
         const updatedAdmin = await Admin.findByPk(id);
@@ -102,7 +102,7 @@ async function deleteAdmin(req, res) {
   try {
     const { id } = req.params;
     const deletedRows = await Admin.destroy({
-      where: { admin_id: id },
+      where: { id: id },
     });
     if (deletedRows > 0) {
       return res.status(204).send();

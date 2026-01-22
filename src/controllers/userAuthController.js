@@ -10,7 +10,7 @@ const { Op } = require("sequelize");
 
 async function signupUser(req, res) {
   try {
-    const { name, email, password } = req.body;
+    const { email, password } = req.body;
 
     // Robust Validation
    
@@ -21,13 +21,12 @@ async function signupUser(req, res) {
       return res.status(400).json({ message: "Password must be at least 6 characters long." });
     }
 
-    const newUser = await User.create({ name, email, password });
+    const newUser = await User.create({ email, password });
     await Cart.create({ userId: newUser.id });
     
     // Return user without password
     const userWithoutPassword = {
       id: newUser.id,
-      name: newUser.name,
       email: newUser.email,
       role: newUser.role,
       createdAt: newUser.createdAt
