@@ -11,12 +11,15 @@ const {
   updateProduct,
   deleteProduct,
   searchProductsByName,
-  filterProducts
+  filterProducts,
+  filterAndSortProducts,
+  getFilterOptions
 } = require('../controllers/productController');
 
 // Public routes (no authentication required)
 router.get('/products', getAllProducts);
-router.get('/products/filter', filterProducts);
+router.get('/products/filter', filterAndSortProducts); // Enhanced filtering and sorting
+router.get('/products/filter/options', getFilterOptions); // Get available filter options
 router.get('/products/search', searchProductsByName);
 router.get('/products/:id', getProductById);
 

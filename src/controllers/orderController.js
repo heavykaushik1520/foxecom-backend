@@ -178,7 +178,15 @@ async function createOrder(req, res) {
     await CartItem.destroy({ where: { cartId: cart.id } });
 
     // Fetch complete order with items for response
+    // Explicitly select only existing columns to avoid database errors
     const completeOrder = await Order.findByPk(order.id, {
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ],
       include: [
         {
           model: OrderItem,
@@ -237,6 +245,13 @@ async function getMyOrders(req, res) {
 
     const { count, rows: orders } = await Order.findAndCountAll({
       where,
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ],
       include: [
         {
           model: OrderItem,
@@ -293,6 +308,13 @@ async function getOrderById(req, res) {
 
     const order = await Order.findOne({
       where: { id, userId },
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ],
       include: [
         {
           model: OrderItem,
@@ -364,7 +386,14 @@ async function cancelOrder(req, res) {
     }
 
     const order = await Order.findOne({
-      where: { id, userId }
+      where: { id, userId },
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ]
     });
 
     if (!order) {
@@ -409,10 +438,27 @@ async function trackOrderStatus(req, res) {
     }
     const order = await Order.findOne({
       where: { id: orderId, userId },
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ]
     });
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
+    // Note: shipmentId field doesn't exist in database yet
+    // After running the migration, uncomment the check below and remove this return
+    return res.status(200).json({
+      message: "Order tracking is not available yet. Shipment tracking will be available after the order is shipped.",
+      orderId: order.id,
+      status: order.status
+    });
+    
+    // Uncomment below after running migration to add shipping fields
+    /*
     if (!order.shipmentId) {
       return res
         .status(404)
@@ -445,6 +491,7 @@ async function trackOrderStatus(req, res) {
       message: "Tracking fetched successfully.",
       tracking: data.tracking_data,
     });
+    */
   } catch (err) {
     console.error("Tracking error:", err.message);
     res.status(500).json({

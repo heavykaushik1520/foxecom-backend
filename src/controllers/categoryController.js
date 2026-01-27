@@ -36,6 +36,7 @@ async function createCategory(req, res) {
     
     const newCategory = await Category.create({ name: trimmedName, slug: trimmedSlug });
     res.status(201).json({
+      success: true,
       message: "Category created successfully",
       category: newCategory
     });
@@ -51,17 +52,43 @@ async function createCategory(req, res) {
 // Get all categories
 async function getAllCategories(req, res) {
   try {
-    const categories = await Category.findAll({
+    const { page = 1, limit = 10, search } = req.query;
+    const offset = (page - 1) * limit;
+    
+    // Build where clause for search
+    const where = {};
+    if (search && search.trim()) {
+      where[Op.or] = [
+        { name: { [Op.like]: `%${search.trim()}%` } },
+        { slug: { [Op.like]: `%${search.trim()}%` } }
+      ];
+    }
+    
+    const { count, rows: categories } = await Category.findAndCountAll({
+      where,
       include: {
         model: Product,
         as: "products",
       },
-      order: [['createdAt', 'ASC']] // Return newest first by default
+      order: [['createdAt', 'ASC']],
+      limit: parseInt(limit),
+      offset: offset,
     });
-    res.status(200).json(categories);
+    
+    res.status(200).json({ 
+      success: true, 
+      categories,
+      pagination: {
+        totalItems: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit)
+      }
+    });
   } catch (error) {
     console.error("Error fetching all categories with products:", error);
     res.status(500).json({
+        success: false,
         message: "Failed to fetch categories with products",
         error: error.message,
       });
@@ -79,9 +106,9 @@ async function getCategoryById(req, res) {
       },
     });
     if (!category) {
-      return res.status(404).json({ message: "Category not found" });
+      return res.status(404).json({ success: false, message: "Category not found" });
     }
-    res.status(200).json(category);
+    res.status(200).json({ success: true, category });
   } catch (error) {
     console.error(`Error fetching category with ID ${id}:`, error);
     res.status(500).json({ message: "Failed to fetch category", error: error.message });
@@ -144,6 +171,7 @@ async function updateCategory(req, res) {
     });
 
     return res.status(200).json({
+      success: true,
       message: "Category updated successfully",
       category: updatedCategory
     });
@@ -169,29 +197,97 @@ async function deleteCategory(req, res) {
     });
     
     if (!category) {
-      return res.status(404).json({ message: "Category not found" });
+      return res.status(404).json({ success: false, message: "Category not found" });
     }
     
     // Check if category has products
     if (category.products && category.products.length > 0) {
       return res.status(400).json({ 
+        success: false,
         message: "Cannot delete category that contains products. Please remove all products from this category first.",
         productsCount: category.products.length
       });
     }
     
+    const categoryInfo = {
+      id: category.id,
+      name: category.name
+    };
+    
     await category.destroy();
 
     return res.status(200).json({ 
+      success: true,
       message: "Category deleted successfully",
-      deletedCategory: {
-        id: category.id,
-        name: category.name
-      }
+      deletedCategory: categoryInfo
     });
   } catch (error) {
     console.error(`Error deleting category with ID ${id}:`, error);
-    res.status(500).json({ message: "Failed to delete category", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to delete category", error: error.message });
+  }
+}
+
+// Bulk delete categories
+async function bulkDeleteCategories(req, res) {
+  try {
+    const { categoryIds } = req.body;
+    
+    if (!Array.isArray(categoryIds) || categoryIds.length === 0) {
+      return res.status(400).json({ success: false, message: "Category IDs array is required" });
+    }
+
+    // Check if all categories exist and don't have products
+    const categories = await Category.findAll({
+      where: { id: categoryIds },
+      include: {
+        model: Product,
+        as: "products",
+      }
+    });
+
+    if (categories.length !== categoryIds.length) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Some categories not found",
+        found: categories.length,
+        requested: categoryIds.length
+      });
+    }
+
+    // Check for products
+    const categoriesWithProducts = categories.filter(category => 
+      category.products && category.products.length > 0
+    );
+
+    if (categoriesWithProducts.length > 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Some categories have products and cannot be deleted",
+        categoriesWithProducts: categoriesWithProducts.map(c => ({ 
+          id: c.id, 
+          name: c.name, 
+          productsCount: c.products.length 
+        }))
+      });
+    }
+
+    const deletedCount = await Category.destroy({
+      where: { id: categoryIds }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Categories deleted successfully",
+      deletedCount,
+      deletedCategories: categories.map(c => ({ id: c.id, name: c.name }))
+    });
+  } catch (error) {
+    console.error("Error bulk deleting categories:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Failed to bulk delete categories", 
+      error: error.message 
+    });
   }
 }
 
@@ -201,4 +297,5 @@ module.exports = {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  bulkDeleteCategories,
 };

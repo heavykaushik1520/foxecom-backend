@@ -17,5 +17,6 @@ router.get('/mobile-models/:id', getMobileModelById);
 router.post('/mobile-models', isAdmin, createMobileModel);
 router.put('/mobile-models/:id', isAdmin, updateMobileModel);
 router.delete('/mobile-models/:id', isAdmin, deleteMobileModel);
+router.delete('/mobile-models/bulk', isAdmin, require('../controllers/mobileModelsController').bulkDeleteMobileModels);
 
 module.exports = router;

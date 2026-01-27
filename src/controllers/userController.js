@@ -85,7 +85,7 @@ async function getUserById(req, res) {
     const { id } = req.params;
     const user = await User.findByPk(id, {
       attributes: { exclude: ["password"] },
-       include: [
+      include: [
         {
           model: Cart,
           as: 'cart', 
@@ -93,54 +93,96 @@ async function getUserById(req, res) {
       ],
     });
     if (!user) {
-      return res.status(404).json({ message: "User not found." });
+      return res.status(404).json({ success: false, message: "User not found." });
     }
-    res.status(200).json(user);
+    res.status(200).json({ success: true, user });
   } catch (error) {
     console.error(`Error fetching user with ID ${req.params.id}:`, error);
-    res.status(500).json({ message: "Failed to fetch user.", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to fetch user.", error: error.message });
   }
 }
 
 async function updateUser(req, res) {
   try {
     const { id } = req.params;
-    // Prevent updating critical fields like password directly if needed, or handle separately
-    const { password, ...updateData } = req.body; 
+    const { password, role, ...updateData } = req.body; 
 
-    const [updatedRows] = await User.update(updateData, {
-      where: { id: id },
+    // Check if user exists
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    // Validate role if provided
+    if (role !== undefined) {
+      const validRoles = ['user', 'admin'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Invalid role. Must be one of: ${validRoles.join(', ')}` 
+        });
+      }
+      updateData.role = role;
+    }
+
+    // Handle password update separately (if needed in future)
+    if (password) {
+      // Password updates should go through proper password reset flow
+      // For now, we'll skip password updates here for security
+      return res.status(400).json({ 
+        success: false, 
+        message: "Password cannot be updated through this endpoint. Use password reset flow." 
+      });
+    }
+
+    await user.update(updateData);
+    const updatedUser = await User.findByPk(id, {
+      attributes: { exclude: ["password"] },
+      include: [
+        {
+          model: Cart,
+          as: 'cart',
+        },
+      ],
     });
 
-    if (updatedRows > 0) {
-      const updatedUser = await User.findByPk(id, {
-        attributes: { exclude: ["password"] },
-      });
-      return res.status(200).json(updatedUser);
-    } else {
-      return res.status(404).json({ message: "User not found." });
-    }
+    return res.status(200).json({ 
+      success: true,
+      message: "User updated successfully",
+      user: updatedUser 
+    });
   } catch (error) {
     console.error(`Error updating user with ID ${req.params.id}:`, error);
-    res.status(500).json({ message: "Failed to update user.", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to update user.", error: error.message });
   }
 }
 
 async function deleteUser(req, res) {
   try {
     const { id } = req.params;
-    const deletedRows = await User.destroy({
-      where: { id: id },
-    });
-
-    if (deletedRows > 0) {
-      return res.status(204).send();
-    } else {
-      return res.status(404).json({ message: "User not found." });
+    
+    // Check if user exists
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
     }
+
+    // Store user info before deletion
+    const userInfo = {
+      id: user.id,
+      email: user.email
+    };
+
+    await user.destroy();
+
+    return res.status(200).json({ 
+      success: true,
+      message: "User deleted successfully",
+      deletedUser: userInfo
+    });
   } catch (error) {
     console.error(`Error deleting user with ID ${req.params.id}:`, error);
-    res.status(500).json({ message: "Failed to delete user.", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to delete user.", error: error.message });
   }
 }
 

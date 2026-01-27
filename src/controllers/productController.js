@@ -1,9 +1,8 @@
 // src/controllers/productController.js
 // const upload = require("../middleware/upload"); // Removed as middleware is now route-level
-const { Op } = require("sequelize");
+const { Op, Sequelize } = require("sequelize");
 
 const { Product, ProductImage, Category, CaseDetails, MobileBrands, MobileModels } = require("../models"); // Import from index.js
-const { Sequelize } = require("sequelize");
 const { addCategorySpecificDetails, addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 async function createProduct(req, res) {
@@ -281,6 +280,372 @@ async function searchProductsByName(req, res) {
     }
 }
 
+// Enhanced filtering and sorting function
+async function filterAndSortProducts(req, res) {
+    try {
+        const {
+            // Pagination
+            page = 1,
+            limit = 12,
+            
+            // Filtering
+            categoryId,
+            brandId,
+            brandName,
+            modelId,
+            modelName,
+            minPrice,
+            maxPrice,
+            inStock,
+            color,
+            material,
+            caseType,
+            search,
+            
+            // Sorting
+            sortBy,
+            sortOrder = 'DESC'
+        } = req.query;
+
+        // Default sortBy if not provided
+        if (!sortBy) {
+            sortBy = 'createdAt';
+        }
+
+        // Validate pagination
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 12));
+        const offset = (pageNum - 1) * limitNum;
+
+        // Build where clause for Product
+        const productWhere = {};
+        
+        if (categoryId) {
+            const categoryIdNum = parseInt(categoryId);
+            if (isNaN(categoryIdNum)) {
+                return res.status(400).json({ 
+                    message: "Invalid categoryId. Must be a number.",
+                    error: "INVALID_CATEGORY_ID"
+                });
+            }
+            productWhere.categoryId = categoryIdNum;
+        }
+
+        // Price range filtering
+        if (minPrice || maxPrice) {
+            productWhere.price = {};
+            if (minPrice) {
+                const min = parseFloat(minPrice);
+                if (isNaN(min) || min < 0) {
+                    return res.status(400).json({ 
+                        message: "Invalid minPrice. Must be a non-negative number.",
+                        error: "INVALID_MIN_PRICE"
+                    });
+                }
+                productWhere.price[Op.gte] = min;
+            }
+            if (maxPrice) {
+                const max = parseFloat(maxPrice);
+                if (isNaN(max) || max < 0) {
+                    return res.status(400).json({ 
+                        message: "Invalid maxPrice. Must be a non-negative number.",
+                        error: "INVALID_MAX_PRICE"
+                    });
+                }
+                productWhere.price[Op.lte] = max;
+            }
+            if (minPrice && maxPrice && parseFloat(minPrice) > parseFloat(maxPrice)) {
+                return res.status(400).json({ 
+                    message: "minPrice cannot be greater than maxPrice.",
+                    error: "INVALID_PRICE_RANGE"
+                });
+            }
+        }
+
+        // Stock filtering
+        if (inStock !== undefined) {
+            if (inStock === 'true' || inStock === true || inStock === '1') {
+                productWhere.stock = { [Op.gt]: 0 };
+            } else if (inStock === 'false' || inStock === false || inStock === '0') {
+                productWhere.stock = { [Op.lte]: 0 };
+            } else {
+                return res.status(400).json({ 
+                    message: "Invalid inStock value. Must be 'true' or 'false'.",
+                    error: "INVALID_STOCK_FILTER"
+                });
+            }
+        }
+
+        // Search by title
+        if (search && search.trim()) {
+            productWhere.title = {
+                [Op.like]: `%${search.trim()}%`
+            };
+        }
+
+        // Build include clause with nested filtering for CaseDetails
+        const includeClause = [
+            { 
+                model: ProductImage, 
+                as: "images",
+                required: false
+            },
+            { 
+                model: Category, 
+                as: "category",
+                required: false
+            }
+        ];
+
+        // Build CaseDetails where clause for brand/model filtering
+        const caseDetailsWhere = {};
+        let hasCaseDetailsFilter = false;
+
+        if (brandId) {
+            const brandIdNum = parseInt(brandId);
+            if (isNaN(brandIdNum)) {
+                return res.status(400).json({ 
+                    message: "Invalid brandId. Must be a number.",
+                    error: "INVALID_BRAND_ID"
+                });
+            }
+            caseDetailsWhere.brandId = brandIdNum;
+            hasCaseDetailsFilter = true;
+        }
+
+        if (brandName && brandName.trim()) {
+            // We'll filter by brand name through the include
+            // Store brandName for later use in include
+            hasCaseDetailsFilter = true;
+        }
+
+        if (modelId) {
+            const modelIdNum = parseInt(modelId);
+            if (isNaN(modelIdNum)) {
+                return res.status(400).json({ 
+                    message: "Invalid modelId. Must be a number.",
+                    error: "INVALID_MODEL_ID"
+                });
+            }
+            caseDetailsWhere.modelId = modelIdNum;
+            hasCaseDetailsFilter = true;
+        }
+
+        if (modelName && modelName.trim()) {
+            // We'll filter by model name through the include
+            // Store modelName for later use in include
+            hasCaseDetailsFilter = true;
+        }
+
+        if (color && color.trim()) {
+            caseDetailsWhere.color = {
+                [Op.like]: `%${color.trim()}%`
+            };
+            hasCaseDetailsFilter = true;
+        }
+
+        if (material && material.trim()) {
+            caseDetailsWhere.material = {
+                [Op.like]: `%${material.trim()}%`
+            };
+            hasCaseDetailsFilter = true;
+        }
+
+        if (caseType && caseType.trim()) {
+            caseDetailsWhere.caseType = {
+                [Op.like]: `%${caseType.trim()}%`
+            };
+            hasCaseDetailsFilter = true;
+        }
+
+        // Add CaseDetails include if there are filters
+        // Note: Product model uses "details" as alias
+        if (hasCaseDetailsFilter) {
+            // For brand/model name filtering, we need to include the related models
+            const caseDetailsInclude = {
+                model: CaseDetails,
+                as: "details", // Using the alias from Product model
+                required: true, // INNER JOIN - only products with matching case details
+                where: caseDetailsWhere,
+                include: []
+            };
+
+            // Build brand include with name filtering if needed
+            const brandInclude = {
+                model: MobileBrands,
+                as: "brand",
+                required: !!(brandName || brandId)
+            };
+            if (brandName && brandName.trim()) {
+                brandInclude.where = {
+                    name: {
+                        [Op.like]: `%${brandName.trim()}%`
+                    }
+                };
+            }
+            caseDetailsInclude.include.push(brandInclude);
+
+            // Build model include with name filtering if needed
+            const modelInclude = {
+                model: MobileModels,
+                as: "model",
+                required: !!(modelName || modelId)
+            };
+            if (modelName && modelName.trim()) {
+                modelInclude.where = {
+                    name: {
+                        [Op.like]: `%${modelName.trim()}%`
+                    }
+                };
+            }
+            caseDetailsInclude.include.push(modelInclude);
+
+            includeClause.push(caseDetailsInclude);
+        } else {
+            // Include caseDetails but not required (LEFT JOIN)
+            includeClause.push({
+                model: CaseDetails,
+                as: "details", // Using the alias from Product model
+                required: false,
+                include: [
+                    {
+                        model: MobileBrands,
+                        as: "brand",
+                        required: false
+                    },
+                    {
+                        model: MobileModels,
+                        as: "model",
+                        required: false
+                    }
+                ]
+            });
+        }
+
+        // Validate and build order clause
+        // Map of sortBy values (case-insensitive) to actual database fields
+        const sortFieldMap = {
+            'price': 'price',
+            'discountprice': 'discountPrice',
+            'title': 'title',
+            'createdat': 'createdAt',
+            'updatedat': 'updatedAt',
+            'stock': 'stock',
+            'discount': 'discount' // Special case for calculated field
+        };
+
+        // Normalize sortBy to lowercase for case-insensitive lookup
+        const normalizedSortBy = sortBy ? String(sortBy).trim().toLowerCase() : 'createdat';
+        const mappedField = sortFieldMap[normalizedSortBy];
+        
+        if (!mappedField) {
+            return res.status(400).json({ 
+                message: `Invalid sortBy. Valid options: price, discountPrice, title, createdAt, updatedAt, stock, discount`,
+                error: "INVALID_SORT_FIELD",
+                validOptions: ['price', 'discountPrice', 'title', 'createdAt', 'updatedAt', 'stock', 'discount']
+            });
+        }
+
+        // Build the actual sort field
+        let sortField;
+        if (mappedField === 'discount') {
+            // Special handling for discount percentage calculation
+            sortField = [Sequelize.literal('(price - COALESCE(discountPrice, price)) / price * 100')];
+        } else {
+            sortField = mappedField;
+        }
+
+        const orderDirection = ['ASC', 'DESC'].includes(String(sortOrder).toUpperCase()) 
+            ? String(sortOrder).toUpperCase() 
+            : 'DESC';
+
+        // Build order clause
+        let order;
+        if (Array.isArray(sortField)) {
+            // For calculated fields like discount
+            order = [[sortField[0], orderDirection]];
+        } else {
+            order = [[sortField, orderDirection]];
+        }
+
+        // Execute query
+        const { count, rows: products } = await Product.findAndCountAll({
+            limit: limitNum,
+            offset: offset,
+            where: productWhere,
+            include: includeClause,
+            order: order,
+            distinct: true, // Important for counting with joins
+            subQuery: false // Better performance with complex joins
+        });
+
+        // Add category-specific details
+        const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(count / limitNum);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                products: productsWithDetails,
+                pagination: {
+                    totalItems: count,
+                    totalPages: totalPages,
+                    currentPage: pageNum,
+                    itemsPerPage: limitNum,
+                    hasNextPage: pageNum < totalPages,
+                    hasPreviousPage: pageNum > 1
+                },
+                filters: {
+                    categoryId: categoryId || null,
+                    brandId: brandId || null,
+                    brandName: brandName || null,
+                    modelId: modelId || null,
+                    modelName: modelName || null,
+                    minPrice: minPrice || null,
+                    maxPrice: maxPrice || null,
+                    inStock: inStock || null,
+                    color: color || null,
+                    material: material || null,
+                    caseType: caseType || null,
+                    search: search || null
+                },
+                sorting: {
+                    sortBy: sortBy,
+                    sortOrder: orderDirection
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error in filterAndSortProducts:", error);
+        
+        // Handle specific Sequelize errors
+        if (error.name === 'SequelizeDatabaseError') {
+            return res.status(400).json({ 
+                message: "Invalid query parameters.",
+                error: "DATABASE_ERROR",
+                details: error.message
+            });
+        }
+
+        if (error.name === 'SequelizeValidationError') {
+            return res.status(400).json({ 
+                message: "Validation error in query parameters.",
+                error: "VALIDATION_ERROR",
+                details: error.errors.map(e => e.message)
+            });
+        }
+
+        res.status(500).json({ 
+            message: "Failed to fetch filtered products",
+            error: "INTERNAL_SERVER_ERROR",
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
 //pagination
 async function getAllProducts(req, res) {
     try {
@@ -320,6 +685,211 @@ async function getAllProducts(req, res) {
     }
 }
 
+// Get available filter options (for frontend dropdowns)
+async function getFilterOptions(req, res) {
+    try {
+        const { categoryId } = req.query;
+
+        const productWhere = {};
+        if (categoryId) {
+            const categoryIdNum = parseInt(categoryId);
+            if (isNaN(categoryIdNum)) {
+                return res.status(400).json({ 
+                    message: "Invalid categoryId. Must be a number.",
+                    error: "INVALID_CATEGORY_ID"
+                });
+            }
+            productWhere.categoryId = categoryIdNum;
+        }
+
+        // Get all products with case details for this category
+        const products = await Product.findAll({
+            where: productWhere,
+            include: [
+                {
+                    model: CaseDetails,
+                    as: "details", // Using the alias from Product model
+                    required: false,
+                    include: [
+                        {
+                            model: MobileBrands,
+                            as: "brand",
+                            required: false
+                        },
+                        {
+                            model: MobileModels,
+                            as: "model",
+                            required: false
+                        }
+                    ]
+                }
+            ]
+        });
+
+        // Extract unique values
+        const brands = new Set();
+        const models = new Set();
+        const colors = new Set();
+        const materials = new Set();
+        const caseTypes = new Set();
+        let minPrice = Infinity;
+        let maxPrice = 0;
+
+        products.forEach(product => {
+            // Price range
+            const price = parseFloat(product.price) || 0;
+            if (price > 0) {
+                minPrice = Math.min(minPrice, price);
+                maxPrice = Math.max(maxPrice, price);
+            }
+
+            // Case details - using "details" alias
+            if (product.details) {
+                if (product.details.brand && product.details.brand.name) {
+                    brands.add(product.details.brand.name);
+                }
+                if (product.details.model && product.details.model.name) {
+                    models.add(product.details.model.name);
+                }
+                if (product.details.color) {
+                    colors.add(product.details.color);
+                }
+                if (product.details.material) {
+                    materials.add(product.details.material);
+                }
+                if (product.details.caseType) {
+                    caseTypes.add(product.details.caseType);
+                }
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                brands: Array.from(brands).sort(),
+                models: Array.from(models).sort(),
+                colors: Array.from(colors).sort(),
+                materials: Array.from(materials).sort(),
+                caseTypes: Array.from(caseTypes).sort(),
+                priceRange: {
+                    min: minPrice === Infinity ? 0 : minPrice,
+                    max: maxPrice
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching filter options:", error);
+        res.status(500).json({ 
+            message: "Failed to fetch filter options",
+            error: "INTERNAL_SERVER_ERROR",
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
+// Admin: Get all products with advanced filters and pagination
+async function getAllProductsForAdmin(req, res) {
+    try {
+        const { 
+            page = 1, 
+            limit = 20, 
+            categoryId, 
+            search,
+            minPrice,
+            maxPrice,
+            inStock,
+            sortBy = 'createdAt',
+            sortOrder = 'DESC'
+        } = req.query;
+        
+        const offset = (page - 1) * limit;
+        const where = {};
+        
+        // Category filter
+        if (categoryId) {
+            where.categoryId = parseInt(categoryId);
+        }
+        
+        // Search filter (by title or SKU)
+        if (search) {
+            where[Op.or] = [
+                { title: { [Op.like]: `%${search}%` } },
+                { sku: { [Op.like]: `%${search}%` } }
+            ];
+        }
+        
+        // Price range filter
+        if (minPrice || maxPrice) {
+            where.price = {};
+            if (minPrice) {
+                where.price[Op.gte] = parseFloat(minPrice);
+            }
+            if (maxPrice) {
+                where.price[Op.lte] = parseFloat(maxPrice);
+            }
+        }
+        
+        // Stock filter
+        if (inStock !== undefined) {
+            if (inStock === 'true' || inStock === true) {
+                where.stock = { [Op.gt]: 0 };
+            } else {
+                where[Op.or] = [
+                    { stock: { [Op.lte]: 0 } },
+                    { stock: null }
+                ];
+            }
+        }
+        
+        // Sort options
+        const validSortFields = ['title', 'price', 'discountPrice', 'stock', 'createdAt', 'updatedAt'];
+        const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+        const orderDirection = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+        
+        const { count, rows: products } = await Product.findAndCountAll({
+            where,
+            limit: parseInt(limit),
+            offset: offset,
+            order: [[sortField, orderDirection]],
+            include: [
+                { model: ProductImage, as: "images", limit: 1 },
+                { model: Category, as: "category" },
+                { 
+                    model: CaseDetails, 
+                    as: "details",
+                    include: [
+                        { model: MobileBrands, as: "brand" },
+                        { model: MobileModels, as: "model" }
+                    ],
+                    required: false
+                }
+            ],
+        });
+        
+        // Add category-specific details
+        const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
+        
+        res.status(200).json({
+            success: true,
+            pagination: {
+                totalItems: count,
+                totalPages: Math.ceil(count / limit),
+                currentPage: parseInt(page),
+                limit: parseInt(limit)
+            },
+            products: productsWithDetails
+        });
+    } catch (error) {
+        console.error("Error fetching products for admin:", error);
+        res.status(500).json({ 
+            success: false,
+            message: "Failed to fetch products", 
+            error: error.message 
+        });
+    }
+}
+
 module.exports = {
     createProduct,
     getAllProducts,
@@ -327,6 +897,9 @@ module.exports = {
     updateProduct,
     deleteProduct,
     searchProductsByName,
-    // filter uses same handler as getAllProducts; kept separate for explicit route
-    filterProducts: async function (req, res) { return getAllProducts(req, res); },
+    filterAndSortProducts,
+    getFilterOptions,
+    getAllProductsForAdmin,
+    // Legacy filter route - redirects to new function
+    filterProducts: filterAndSortProducts,
 };

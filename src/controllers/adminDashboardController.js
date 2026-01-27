@@ -43,9 +43,19 @@ async function getDashboardStats(req, res) {
     });
 
     // Get recent orders
+    // Explicitly select only existing columns to avoid database errors
     const recentOrders = await Order.findAll({
       limit: 5,
       order: [['createdAt', 'DESC']],
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+        // Excluding shiprocketOrderId, shipmentId, awbCode, courierName, shipmentStatus 
+        // until these columns are added to the database
+      ],
       include: [
         { model: User, as: 'user', attributes: ['id', 'email', 'role'], required: false }
       ]
@@ -63,13 +73,14 @@ async function getDashboardStats(req, res) {
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     
     // Get all orders from last 6 months and calculate monthly totals in JavaScript
+    // Explicitly select only existing columns
     const recentOrdersForRevenue = await Order.findAll({
       where: {
         createdAt: {
           [Op.gte]: sixMonthsAgo
         }
       },
-      attributes: ['createdAt', 'totalAmount'],
+      attributes: ['createdAt', 'totalAmount'], // Only select fields we need
       order: [['createdAt', 'ASC']]
     });
 
@@ -250,6 +261,13 @@ async function getUserProfile(req, res) {
     const orders = await Order.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ],
       include: [
         {
           model: require('../models').OrderItem,
@@ -281,6 +299,13 @@ async function getUserOrders(req, res) {
     const orders = await Order.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ],
       include: [
         {
           model: require('../models').OrderItem,

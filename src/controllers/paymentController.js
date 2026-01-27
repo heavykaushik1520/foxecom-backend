@@ -15,7 +15,16 @@ async function createRazorpayOrder(req, res) {
     }
 
     // Fetch the internal order
-    const order = await Order.findOne({ where: { id: orderId, userId } });
+    const order = await Order.findOne({ 
+      where: { id: orderId, userId },
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ]
+    });
 
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
@@ -65,7 +74,16 @@ async function verifyPayment(req, res) {
     }
 
     // Find the order using Razorpay Order ID
-    const order = await Order.findOne({ where: { razorpayOrderId: razorpay_order_id, userId } });
+    const order = await Order.findOne({ 
+      where: { razorpayOrderId: razorpay_order_id, userId },
+      attributes: [
+        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'country', 'state', 'pinCode', 'status', 
+        'razorpayOrderId', 'razorpayPaymentId', 
+        'createdAt', 'updatedAt'
+      ]
+    });
 
     if (!order) {
       return res.status(404).json({ message: "Order not found for verification." });

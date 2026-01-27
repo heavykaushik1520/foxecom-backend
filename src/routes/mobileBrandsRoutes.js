@@ -17,5 +17,6 @@ router.get('/mobile-brands/:id', getMobileBrandById);
 router.post('/mobile-brands', isAdmin, createMobileBrand);
 router.put('/mobile-brands/:id', isAdmin, updateMobileBrand);
 router.delete('/mobile-brands/:id', isAdmin, deleteMobileBrand);
+router.delete('/mobile-brands/bulk', isAdmin, require('../controllers/mobileBrandsController').bulkDeleteMobileBrands);
 
 module.exports = router;
