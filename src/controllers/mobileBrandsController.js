@@ -12,9 +12,9 @@ async function createMobileBrand(req, res) {
     
     const trimmedName = name.trim();
     
-    // Check if brand already exists
+    // Check if brand already exists (MySQL-safe LIKE)
     const existingBrand = await MobileBrands.findOne({ 
-      where: { name: { [Op.iLike]: trimmedName } } 
+      where: { name: { [Op.like]: trimmedName } } 
     });
     if (existingBrand) {
       return res.status(409).json({ success: false, message: "Brand with this name already exists." });
@@ -109,10 +109,10 @@ async function updateMobileBrand(req, res) {
     
     const trimmedName = name.trim();
     
-    // Check if another brand with same name exists
+    // Check if another brand with same name exists (MySQL-safe LIKE)
     const existingBrand = await MobileBrands.findOne({ 
       where: { 
-        name: { [Op.iLike]: trimmedName },
+        name: { [Op.like]: trimmedName },
         id: { [Op.ne]: id }
       } 
     });

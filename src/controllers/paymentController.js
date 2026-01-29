@@ -1,8 +1,9 @@
 // src/controllers/paymentController.js
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
-const { Order } = require("../models");
+const { Order, OrderItem, Product } = require("../models");
 const razorpay = require("../config/razorpay");
+const { sendOrderEmails } = require("../utils/sendOrderEmails");
 
 // 1. Create Razorpay Order
 async function createRazorpayOrder(req, res) {
@@ -102,6 +103,47 @@ async function verifyPayment(req, res) {
       order.status = "paid";
       order.razorpayPaymentId = razorpay_payment_id;
       await order.save();
+
+      // Send order confirmation emails to customer and admin
+      try {
+        // Fetch complete order with items and product details for email
+        const completeOrder = await Order.findByPk(order.id, {
+          attributes: [
+            'id', 'userId', 'totalAmount', 'firstName', 'lastName',
+            'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity',
+            'country', 'state', 'pinCode', 'status',
+            'razorpayOrderId', 'razorpayPaymentId',
+            'createdAt', 'updatedAt'
+          ],
+          include: [
+            {
+              model: OrderItem,
+              as: "orderItems",
+              include: [
+                {
+                  model: Product,
+                  as: "product",
+                  attributes: ['id', 'title', 'price']
+                }
+              ]
+            }
+          ]
+        });
+
+        if (completeOrder && completeOrder.orderItems) {
+          // Send emails asynchronously (don't block the response)
+          sendOrderEmails(completeOrder.toJSON(), completeOrder.orderItems)
+            .then(result => {
+              console.log("Order emails sent:", result);
+            })
+            .catch(err => {
+              console.error("Error sending order emails:", err);
+            });
+        }
+      } catch (emailError) {
+        // Log the error but don't fail the payment verification
+        console.error("Error preparing order emails:", emailError);
+      }
 
       res.status(200).json({ 
         message: "Payment verified successfully.", 

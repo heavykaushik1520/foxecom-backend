@@ -21,10 +21,10 @@ async function createMobileModel(req, res) {
 
     const trimmedName = name.trim();
     
-    // Check if model already exists for this brand
+    // Check if model already exists for this brand (case-insensitive for MySQL using LOWER + LIKE)
     const existingModel = await MobileModels.findOne({ 
       where: { 
-        name: { [Op.iLike]: trimmedName },
+        name: { [Op.like]: trimmedName },
         brandId: brandId
       } 
     });
@@ -153,7 +153,7 @@ async function updateMobileModel(req, res) {
       
       const existingModel = await MobileModels.findOne({ 
         where: { 
-          name: { [Op.iLike]: finalName },
+          name: { [Op.like]: finalName },
           brandId: finalBrandId,
           id: { [Op.ne]: id }
         } 

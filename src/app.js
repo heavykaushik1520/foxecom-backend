@@ -28,6 +28,7 @@ const orderRoutes = require("./routes/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const adminOrderRoutes = require('./routes/adminOrderRoutes');
 const shipRoutes = require("./routes/shipRoutes");//created on 12/06
+const contactRoutes = require("./routes/contactRoutes");
 
 const mobileBrandsRoutes = require('./routes/mobileBrandsRoutes');
 const mobileModelsRoutes = require('./routes/mobileModelsRoutes');
@@ -135,6 +136,9 @@ app.use('/api/webhooks',shipRoutes)
 app.use('/api', mobileBrandsRoutes);
 app.use('/api', mobileModelsRoutes);
 app.use('/api', caseDetailsRoutes);
+
+// Contact form route
+app.use("/api", contactRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {
