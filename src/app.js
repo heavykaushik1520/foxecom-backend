@@ -33,6 +33,7 @@ const contactRoutes = require("./routes/contactRoutes");
 const mobileBrandsRoutes = require('./routes/mobileBrandsRoutes');
 const mobileModelsRoutes = require('./routes/mobileModelsRoutes');
 const caseDetailsRoutes = require('./routes/caseDetailsRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -77,7 +78,8 @@ testConnection();
 
 async function syncDatabase() {
   try {
-    // await sequelize.sync({ alter: true });
+    // Creates new tables (e.g. reviews) without altering existing ones
+    await sequelize.sync();
     console.log('Database synchronized successfully.');
   } catch (error) {
     console.error('Error synchronizing database:', error);
@@ -136,6 +138,7 @@ app.use('/api/webhooks',shipRoutes)
 app.use('/api', mobileBrandsRoutes);
 app.use('/api', mobileModelsRoutes);
 app.use('/api', caseDetailsRoutes);
+app.use('/api', reviewRoutes);
 
 // Contact form route
 app.use("/api", contactRoutes);

@@ -78,6 +78,11 @@ Product.associate = (models) => {
     foreignKey: "productId",
     as: "details"
   });
+  Product.hasMany(models.Review, {
+    foreignKey: "productId",
+    as: "reviews",
+    onDelete: "CASCADE",
+  });
 };
 
 module.exports = Product;
