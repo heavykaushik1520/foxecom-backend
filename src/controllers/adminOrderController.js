@@ -16,7 +16,7 @@ async function getAllOrdersForAdmin(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -61,7 +61,7 @@ async function getOrderById(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -126,7 +126,7 @@ async function updateOrderStatus(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -228,7 +228,7 @@ async function getOrdersWithFilters(req, res) {
       filteredOrders = orders.filter(order => 
         order.user?.email?.toLowerCase().includes(searchLower) ||
         order.id.toString().includes(search) ||
-        order.razorpayOrderId?.toLowerCase().includes(searchLower)
+        order.payuTxnId?.toLowerCase().includes(searchLower)
       );
     }
 

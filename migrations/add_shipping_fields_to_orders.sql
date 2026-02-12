@@ -17,7 +17,7 @@ SET @preparedStatement = (SELECT IF(
       AND (column_name = @columnname)
   ) > 0,
   "SELECT 'Column shiprocketOrderId already exists.'",
-  CONCAT("ALTER TABLE ", @tablename, " ADD COLUMN ", @columnname, " VARCHAR(255) NULL AFTER razorpayPaymentId")
+  CONCAT("ALTER TABLE ", @tablename, " ADD COLUMN ", @columnname, " VARCHAR(255) NULL AFTER payuPaymentId")
 ));
 PREPARE alterIfNotExists FROM @preparedStatement;
 EXECUTE alterIfNotExists;
@@ -93,7 +93,7 @@ DEALLOCATE PREPARE alterIfNotExists;
 
 -- Simple version (if the above doesn't work, use this and manually check for errors):
 -- ALTER TABLE `orders` 
--- ADD COLUMN `shiprocketOrderId` VARCHAR(255) NULL AFTER `razorpayPaymentId`,
+-- ADD COLUMN `shiprocketOrderId` VARCHAR(255) NULL AFTER `payuPaymentId`,
 -- ADD COLUMN `shipmentId` VARCHAR(255) NULL AFTER `shiprocketOrderId`,
 -- ADD COLUMN `awbCode` VARCHAR(255) NULL AFTER `shipmentId`,
 -- ADD COLUMN `courierName` VARCHAR(255) NULL AFTER `awbCode`,

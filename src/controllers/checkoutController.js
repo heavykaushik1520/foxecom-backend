@@ -229,31 +229,10 @@ async function getPaymentMethods(req, res) {
     // You can make this dynamic based on order amount, user location, etc.
     const paymentMethods = [
       {
-        id: "razorpay",
-        name: "Credit/Debit Card",
-        description: "Pay with Visa, Mastercard, RuPay",
+        id: "payu",
+        name: "PayU",
+        description: "Credit/Debit Card, UPI, Net Banking, Wallets",
         icon: "credit-card",
-        enabled: true
-      },
-      {
-        id: "razorpay_upi",
-        name: "UPI",
-        description: "Pay with UPI apps like GPay, PhonePe, Paytm",
-        icon: "upi",
-        enabled: true
-      },
-      {
-        id: "razorpay_wallet",
-        name: "Digital Wallet",
-        description: "Pay with Paytm, Mobikwik, Freecharge",
-        icon: "wallet",
-        enabled: true
-      },
-      {
-        id: "razorpay_netbanking",
-        name: "Net Banking",
-        description: "Pay with your bank account",
-        icon: "bank",
         enabled: true
       }
     ];

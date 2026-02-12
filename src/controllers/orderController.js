@@ -184,7 +184,7 @@ async function createOrder(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -249,7 +249,7 @@ async function getMyOrders(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -312,7 +312,7 @@ async function getOrderById(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -391,7 +391,7 @@ async function cancelOrder(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ]
     });
@@ -442,7 +442,7 @@ async function trackOrderStatus(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'razorpayOrderId', 'razorpayPaymentId', 
+        'payuTxnId', 'payuPaymentId', 
         'createdAt', 'updatedAt'
       ]
     });

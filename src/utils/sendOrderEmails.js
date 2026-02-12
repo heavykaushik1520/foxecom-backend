@@ -111,7 +111,7 @@ const getCustomerEmailHTML = (order, orderItems) => {
                       <tr>
                         <td style="padding: 5px 0;">
                           <span style="color: #666; font-size: 14px;">Payment ID:</span>
-                          <strong style="color: #333; font-size: 14px; float: right;">${order.razorpayPaymentId || "N/A"}</strong>
+                          <strong style="color: #333; font-size: 14px; float: right;">${order.payuPaymentId || order.payuTxnId || "N/A"}</strong>
                         </td>
                       </tr>
                     </table>
@@ -278,11 +278,11 @@ const getAdminEmailHTML = (order, orderItems) => {
                     <table role="presentation" style="width: 100%;">
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Payment ID:</td>
-                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.razorpayPaymentId || "N/A"}</td>
+                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.payuPaymentId || order.payuTxnId || "N/A"}</td>
                       </tr>
                       <tr>
-                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Razorpay Order:</td>
-                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.razorpayOrderId || "N/A"}</td>
+                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Transaction ID:</td>
+                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.payuTxnId || "N/A"}</td>
                       </tr>
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Total Amount:</td>
@@ -436,7 +436,7 @@ ORDER DETAILS
 -------------
 Order Number: #${order.id}
 Order Date: ${formatDate(order.createdAt)}
-Payment ID: ${order.razorpayPaymentId || "N/A"}
+Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
 
 PRODUCTS (${totalItems} items)
 ${productList}
@@ -486,8 +486,8 @@ Total Amount: ${formatCurrency(order.totalAmount)}
 
 PAYMENT DETAILS
 ---------------
-Payment ID: ${order.razorpayPaymentId || "N/A"}
-Razorpay Order: ${order.razorpayOrderId || "N/A"}
+Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
+Transaction ID: ${order.payuTxnId || "N/A"}
 
 CUSTOMER INFORMATION
 --------------------
