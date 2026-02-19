@@ -50,16 +50,24 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://artiststation.co.in'
+  'https://artiststation.co.in',
+  // PayU redirects (browser sends these as Origin when returning from PayU)
+  'https://test.payu.in',
+  'https://secure.payu.in',
+  'https://pgsim01.payu.in',  // PayU UPI simulator
+  'https://payu.in',
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+    // No origin (redirects, Postman, same-origin, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Opaque / null origin (some browsers for redirects)
+    if (origin === 'null') return callback(null, true);
+    // Any PayU domain (redirect back from payment page)
+    if (origin.includes('payu.in')) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],

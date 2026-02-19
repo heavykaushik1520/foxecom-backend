@@ -20,6 +20,13 @@ const ProductImage = sequelize.define(
   {
     tableName: "product_images",
     timestamps: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ['productId', 'imageUrl'],
+        name: 'unique_product_image'
+      }
+    ]
   }
 );
 

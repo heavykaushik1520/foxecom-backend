@@ -3,6 +3,7 @@
 const { Op, Sequelize } = require("sequelize");
 
 const { Product, ProductImage, Category, CaseDetails, MobileBrands, MobileModels } = require("../models"); // Import from index.js
+const { sequelize } = require("../config/db");
 const { addCategorySpecificDetails, addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 async function createProduct(req, res) {
@@ -75,11 +76,48 @@ async function createProduct(req, res) {
         const newProduct = await Product.create(productData);
 
         if (galleryFiles && galleryFiles.length > 0) {
-            const imageRecords = galleryFiles.map((file) => ({
+            // Remove duplicate filenames to prevent duplicate image URLs
+            const uniqueFiles = [];
+            const seenFilenames = new Set();
+            
+            for (const file of galleryFiles) {
+                if (!seenFilenames.has(file.filename)) {
+                    seenFilenames.add(file.filename);
+                    uniqueFiles.push(file);
+                }
+            }
+
+            const imageRecords = uniqueFiles.map((file) => ({
                 imageUrl: `/uploads/images/${file.filename}`,
                 productId: newProduct.id,
             }));
-            await ProductImage.bulkCreate(imageRecords);
+            
+            // Check for existing image URLs before inserting (extra safety)
+            const imageUrls = imageRecords.map(record => record.imageUrl);
+            const existingImages = await ProductImage.findAll({
+                where: {
+                    productId: newProduct.id,
+                    imageUrl: imageUrls
+                }
+            });
+            
+            const existingUrls = new Set(existingImages.map(img => img.imageUrl));
+            const newImageRecords = imageRecords.filter(record => !existingUrls.has(record.imageUrl));
+            
+            if (newImageRecords.length > 0) {
+                try {
+                    await ProductImage.bulkCreate(newImageRecords, {
+                        ignoreDuplicates: true // Ignore duplicates if unique constraint exists
+                    });
+                } catch (error) {
+                    // If unique constraint error, log but don't fail
+                    if (error.name === 'SequelizeUniqueConstraintError') {
+                        console.warn('Duplicate image URLs detected and skipped:', error.message);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
         }
 
         const productWithImages = await Product.findByPk(newProduct.id, {
@@ -174,11 +212,48 @@ async function updateProduct(req, res) {
 
             // Enforce images between 2 and 5 after applying deletions/additions
             if (galleryFiles && galleryFiles.length > 0) {
-                const imageRecords = galleryFiles.map((file) => ({
+                // Remove duplicate filenames to prevent duplicate image URLs
+                const uniqueFiles = [];
+                const seenFilenames = new Set();
+                
+                for (const file of galleryFiles) {
+                    if (!seenFilenames.has(file.filename)) {
+                        seenFilenames.add(file.filename);
+                        uniqueFiles.push(file);
+                    }
+                }
+
+                const imageRecords = uniqueFiles.map((file) => ({
                     imageUrl: `/uploads/images/${file.filename}`,
                     productId: id,
                 }));
-                await ProductImage.bulkCreate(imageRecords);
+                
+                // Check for existing image URLs before inserting (prevent duplicates)
+                const imageUrls = imageRecords.map(record => record.imageUrl);
+                const existingImages = await ProductImage.findAll({
+                    where: {
+                        productId: id,
+                        imageUrl: imageUrls
+                    }
+                });
+                
+                const existingUrls = new Set(existingImages.map(img => img.imageUrl));
+                const newImageRecords = imageRecords.filter(record => !existingUrls.has(record.imageUrl));
+                
+            if (newImageRecords.length > 0) {
+                try {
+                    await ProductImage.bulkCreate(newImageRecords, {
+                        ignoreDuplicates: true // Ignore duplicates if unique constraint exists
+                    });
+                } catch (error) {
+                    // If unique constraint error, log but don't fail
+                    if (error.name === 'SequelizeUniqueConstraintError') {
+                        console.warn('Duplicate image URLs detected and skipped:', error.message);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
             }
             if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
                 await ProductImage.destroy({
@@ -474,7 +549,8 @@ async function filterAndSortProducts(req, res) {
             const brandInclude = {
                 model: MobileBrands,
                 as: "brand",
-                required: !!(brandName || brandId)
+                required: !!(brandName || brandId),
+                attributes: { exclude: [] } // Include all Brand columns
             };
             if (brandName && brandName.trim()) {
                 brandInclude.where = {
@@ -489,7 +565,8 @@ async function filterAndSortProducts(req, res) {
             const modelInclude = {
                 model: MobileModels,
                 as: "model",
-                required: !!(modelName || modelId)
+                required: !!(modelName || modelId),
+                attributes: { exclude: [] } // Include all Model columns
             };
             if (modelName && modelName.trim()) {
                 modelInclude.where = {
@@ -499,24 +576,31 @@ async function filterAndSortProducts(req, res) {
                 };
             }
             caseDetailsInclude.include.push(modelInclude);
+            
+            // Add attributes to caseDetailsInclude to avoid duplicate column issues
+            caseDetailsInclude.attributes = { exclude: [] };
 
             includeClause.push(caseDetailsInclude);
         } else {
             // Include caseDetails but not required (LEFT JOIN)
+            // Specify attributes explicitly to avoid duplicate column name errors
             includeClause.push({
                 model: CaseDetails,
                 as: "details", // Using the alias from Product model
                 required: false,
+                attributes: { exclude: [] }, // Include all CaseDetails columns
                 include: [
                     {
                         model: MobileBrands,
                         as: "brand",
-                        required: false
+                        required: false,
+                        attributes: { exclude: [] } // Include all Brand columns
                     },
                     {
                         model: MobileModels,
                         as: "model",
-                        required: false
+                        required: false,
+                        attributes: { exclude: [] } // Include all Model columns
                     }
                 ]
             });
@@ -560,37 +644,98 @@ async function filterAndSortProducts(req, res) {
             : 'DESC';
 
         // Build order clause
+        // Use Sequelize.col() to properly qualify column names and avoid duplicate column errors
         let order;
         if (Array.isArray(sortField)) {
             // For calculated fields like discount
             order = [[sortField[0], orderDirection]];
         } else {
-            order = [[sortField, orderDirection]];
+            // Use Sequelize.col() to reference Product table columns explicitly
+            // This prevents "Duplicate column name 'id'" errors when using distinct with joins
+            const orderField = Sequelize.col(`products.${sortField}`);
+            order = [[orderField, orderDirection]];
         }
 
         // Execute query
-        const { count, rows: products } = await Product.findAndCountAll({
+        // Separate count and find queries to avoid duplicate column name errors
+        // The issue: distinct: true with multiple joins causes Sequelize to select all columns
+        // from all tables, leading to "Duplicate column name 'id'" errors
+        
+        // Solution: Count without ProductImage (since we're not filtering by images)
+        // ProductImage is one-to-many, so including it causes duplicates, but we don't need it for count
+        let count, products;
+        
+        // Build simplified count include (only what's needed for filtering, NO ProductImage)
+        const countIncludeClause = [];
+        
+        // Add CaseDetails to count include only if filtering by it
+        if (hasCaseDetailsFilter) {
+            const caseDetailsCountInclude = {
+                model: CaseDetails,
+                as: "details",
+                required: true,
+                where: caseDetailsWhere,
+                attributes: [], // Empty attributes to avoid column selection
+                include: []
+            };
+            
+            if (brandName || brandId) {
+                caseDetailsCountInclude.include.push({
+                    model: MobileBrands,
+                    as: "brand",
+                    required: !!(brandName || brandId),
+                    attributes: [], // Empty attributes
+                    where: brandName ? { name: { [Op.like]: `%${brandName.trim()}%` } } : undefined
+                });
+            }
+            
+            if (modelName || modelId) {
+                caseDetailsCountInclude.include.push({
+                    model: MobileModels,
+                    as: "model",
+                    required: !!(modelName || modelId),
+                    attributes: [], // Empty attributes
+                    where: modelName ? { name: { [Op.like]: `%${modelName.trim()}%` } } : undefined
+                });
+            }
+            
+            countIncludeClause.push(caseDetailsCountInclude);
+        }
+        
+        // Count query - don't include ProductImage to avoid duplicates
+        // Since ProductImage is one-to-many, excluding it from count is fine
+        // We only count what we filter by
+        count = await Product.count({
+            where: productWhere,
+            include: countIncludeClause
+            // Don't use distinct here - we're not including ProductImage which causes duplicates
+        });
+        
+        // Then, get the products with all includes (including ProductImage)
+        // Use subQuery to avoid duplicate column issues
+        products = await Product.findAll({
             limit: limitNum,
             offset: offset,
             where: productWhere,
             include: includeClause,
             order: order,
-            distinct: true, // Important for counting with joins
-            subQuery: false // Better performance with complex joins
+            subQuery: true // Use subquery - this prevents duplicate column issues
         });
 
         // Add category-specific details
         const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
 
         // Calculate pagination metadata
-        const totalPages = Math.ceil(count / limitNum);
+        // Ensure count is a number (it might be an array when using distinct)
+        const totalCount = Array.isArray(count) ? count.length : count;
+        const totalPages = Math.ceil(totalCount / limitNum);
 
         res.status(200).json({
             success: true,
             data: {
                 products: productsWithDetails,
                 pagination: {
-                    totalItems: count,
+                    totalItems: totalCount,
                     totalPages: totalPages,
                     currentPage: pageNum,
                     itemsPerPage: limitNum,

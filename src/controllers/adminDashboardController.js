@@ -51,7 +51,7 @@ async function getDashboardStats(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
         // Excluding shiprocketOrderId, shipmentId, awbCode, courierName, shipmentStatus 
         // until these columns are added to the database
@@ -265,7 +265,7 @@ async function getUserProfile(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -303,7 +303,7 @@ async function getUserOrders(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [

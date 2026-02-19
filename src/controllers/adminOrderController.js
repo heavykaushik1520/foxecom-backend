@@ -16,7 +16,7 @@ async function getAllOrdersForAdmin(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -61,7 +61,7 @@ async function getOrderById(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -126,7 +126,7 @@ async function updateOrderStatus(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [

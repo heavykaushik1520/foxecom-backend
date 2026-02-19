@@ -134,10 +134,11 @@ async function createOrder(req, res) {
       unavailableProducts.push({ id: productId, name: "Product not found" });
     });
 
-    // Calculate total for available products
+    // Calculate total for available products using discountPrice if available, otherwise price
     for (const product of cart.products) {
       if (product && product.cartItem) {
-        totalAmount += parseFloat(product.price) * product.cartItem.quantity;
+        const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
+        totalAmount += productPrice * product.cartItem.quantity;
       }
     }
 
@@ -164,13 +165,16 @@ async function createOrder(req, res) {
       status: 'pending'
     });
 
-    // Create order items
-    const orderItems = cart.products.map((product) => ({
-      orderId: order.id,
-      productId: product.id,
-      quantity: product.cartItem.quantity,
-      priceAtPurchase: parseFloat(product.price),
-    }));
+    // Create order items - store discountPrice if available, otherwise price
+    const orderItems = cart.products.map((product) => {
+      const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
+      return {
+        orderId: order.id,
+        productId: product.id,
+        quantity: product.cartItem.quantity,
+        priceAtPurchase: productPrice,
+      };
+    });
 
     await OrderItem.bulkCreate(orderItems);
 
@@ -184,7 +188,7 @@ async function createOrder(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -249,7 +253,7 @@ async function getMyOrders(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -312,7 +316,7 @@ async function getOrderById(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -391,7 +395,7 @@ async function cancelOrder(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ]
     });
@@ -442,7 +446,7 @@ async function trackOrderStatus(req, res) {
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
-        'payuTxnId', 'payuPaymentId', 
+        'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
       ]
     });

@@ -72,12 +72,12 @@ async function getCheckoutSummary(req, res) {
       unavailableProducts.push({ id: productId, name: "Product not found" });
     });
 
-    // Calculate total for available products
+    // Calculate total for available products using discountPrice if available, otherwise price
     for (const product of cart.products) {
       if (product && product.cartItem) {
         const quantity = product.cartItem.quantity;
-        const price = parseFloat(product.price);
-        totalAmount += price * quantity;
+        const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
+        totalAmount += productPrice * quantity;
         totalItems += quantity;
       }
     }
@@ -104,14 +104,18 @@ async function getCheckoutSummary(req, res) {
         subtotal: totalAmount.toFixed(2),
         shipping: shippingCost.toFixed(2),
         totalAmount: finalTotal.toFixed(2),
-        products: cart.products.map(product => ({
-          id: product.id,
-          title: product.title,
-          price: product.price,
-          quantity: product.cartItem.quantity,
-          image: product.images?.[0]?.imageUrl || product.thumbnailImage || null,
-          total: (parseFloat(product.price) * product.cartItem.quantity).toFixed(2)
-        }))
+        products: cart.products.map(product => {
+          const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
+          return {
+            id: product.id,
+            title: product.title,
+            price: product.discountPrice || product.price,
+            discountPrice: product.discountPrice,
+            quantity: product.cartItem.quantity,
+            image: product.images?.[0]?.imageUrl || product.thumbnailImage || null,
+            total: (productPrice * product.cartItem.quantity).toFixed(2)
+          };
+        })
       }
     });
 
