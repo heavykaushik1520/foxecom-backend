@@ -34,6 +34,7 @@ const mobileBrandsRoutes = require('./routes/mobileBrandsRoutes');
 const mobileModelsRoutes = require('./routes/mobileModelsRoutes');
 const caseDetailsRoutes = require('./routes/caseDetailsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
+const bannerRoutes = require('./routes/bannerRoutes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -150,6 +151,9 @@ app.use('/api', reviewRoutes);
 
 // Contact form route
 app.use("/api", contactRoutes);
+
+// Banner (billboard) routes – public GET /api/banners, admin CRUD under /api/admin/banners
+app.use("/api", bannerRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {
