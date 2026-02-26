@@ -549,8 +549,7 @@ async function filterAndSortProducts(req, res) {
             const brandInclude = {
                 model: MobileBrands,
                 as: "brand",
-                required: !!(brandName || brandId),
-                attributes: { exclude: [] } // Include all Brand columns
+                required: !!(brandName || brandId)
             };
             if (brandName && brandName.trim()) {
                 brandInclude.where = {
@@ -565,8 +564,7 @@ async function filterAndSortProducts(req, res) {
             const modelInclude = {
                 model: MobileModels,
                 as: "model",
-                required: !!(modelName || modelId),
-                attributes: { exclude: [] } // Include all Model columns
+                required: !!(modelName || modelId)
             };
             if (modelName && modelName.trim()) {
                 modelInclude.where = {
@@ -576,31 +574,24 @@ async function filterAndSortProducts(req, res) {
                 };
             }
             caseDetailsInclude.include.push(modelInclude);
-            
-            // Add attributes to caseDetailsInclude to avoid duplicate column issues
-            caseDetailsInclude.attributes = { exclude: [] };
 
             includeClause.push(caseDetailsInclude);
         } else {
             // Include caseDetails but not required (LEFT JOIN)
-            // Specify attributes explicitly to avoid duplicate column name errors
             includeClause.push({
                 model: CaseDetails,
                 as: "details", // Using the alias from Product model
                 required: false,
-                attributes: { exclude: [] }, // Include all CaseDetails columns
                 include: [
                     {
                         model: MobileBrands,
                         as: "brand",
-                        required: false,
-                        attributes: { exclude: [] } // Include all Brand columns
+                        required: false
                     },
                     {
                         model: MobileModels,
                         as: "model",
-                        required: false,
-                        attributes: { exclude: [] } // Include all Model columns
+                        required: false
                     }
                 ]
             });
@@ -644,98 +635,37 @@ async function filterAndSortProducts(req, res) {
             : 'DESC';
 
         // Build order clause
-        // Use Sequelize.col() to properly qualify column names and avoid duplicate column errors
         let order;
         if (Array.isArray(sortField)) {
             // For calculated fields like discount
             order = [[sortField[0], orderDirection]];
         } else {
-            // Use Sequelize.col() to reference Product table columns explicitly
-            // This prevents "Duplicate column name 'id'" errors when using distinct with joins
-            const orderField = Sequelize.col(`products.${sortField}`);
-            order = [[orderField, orderDirection]];
+            order = [[sortField, orderDirection]];
         }
 
         // Execute query
-        // Separate count and find queries to avoid duplicate column name errors
-        // The issue: distinct: true with multiple joins causes Sequelize to select all columns
-        // from all tables, leading to "Duplicate column name 'id'" errors
-        
-        // Solution: Count without ProductImage (since we're not filtering by images)
-        // ProductImage is one-to-many, so including it causes duplicates, but we don't need it for count
-        let count, products;
-        
-        // Build simplified count include (only what's needed for filtering, NO ProductImage)
-        const countIncludeClause = [];
-        
-        // Add CaseDetails to count include only if filtering by it
-        if (hasCaseDetailsFilter) {
-            const caseDetailsCountInclude = {
-                model: CaseDetails,
-                as: "details",
-                required: true,
-                where: caseDetailsWhere,
-                attributes: [], // Empty attributes to avoid column selection
-                include: []
-            };
-            
-            if (brandName || brandId) {
-                caseDetailsCountInclude.include.push({
-                    model: MobileBrands,
-                    as: "brand",
-                    required: !!(brandName || brandId),
-                    attributes: [], // Empty attributes
-                    where: brandName ? { name: { [Op.like]: `%${brandName.trim()}%` } } : undefined
-                });
-            }
-            
-            if (modelName || modelId) {
-                caseDetailsCountInclude.include.push({
-                    model: MobileModels,
-                    as: "model",
-                    required: !!(modelName || modelId),
-                    attributes: [], // Empty attributes
-                    where: modelName ? { name: { [Op.like]: `%${modelName.trim()}%` } } : undefined
-                });
-            }
-            
-            countIncludeClause.push(caseDetailsCountInclude);
-        }
-        
-        // Count query - don't include ProductImage to avoid duplicates
-        // Since ProductImage is one-to-many, excluding it from count is fine
-        // We only count what we filter by
-        count = await Product.count({
-            where: productWhere,
-            include: countIncludeClause
-            // Don't use distinct here - we're not including ProductImage which causes duplicates
-        });
-        
-        // Then, get the products with all includes (including ProductImage)
-        // Use subQuery to avoid duplicate column issues
-        products = await Product.findAll({
+        const { count, rows: products } = await Product.findAndCountAll({
             limit: limitNum,
             offset: offset,
             where: productWhere,
             include: includeClause,
             order: order,
-            subQuery: true // Use subquery - this prevents duplicate column issues
+            distinct: true, // Important for counting with joins
+            subQuery: false // Better performance with complex joins
         });
 
         // Add category-specific details
         const productsWithDetails = await addCategorySpecificDetailsToProducts(products);
 
         // Calculate pagination metadata
-        // Ensure count is a number (it might be an array when using distinct)
-        const totalCount = Array.isArray(count) ? count.length : count;
-        const totalPages = Math.ceil(totalCount / limitNum);
+        const totalPages = Math.ceil(count / limitNum);
 
         res.status(200).json({
             success: true,
             data: {
                 products: productsWithDetails,
                 pagination: {
-                    totalItems: totalCount,
+                    totalItems: count,
                     totalPages: totalPages,
                     currentPage: pageNum,
                     itemsPerPage: limitNum,

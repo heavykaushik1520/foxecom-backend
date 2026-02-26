@@ -9,6 +9,7 @@ const {
 } = require("../models");
 const commonUtils = require("./commonUtils");
 const { getShiprocketToken } = require("../utils/getShiprocketToken");
+const { trackShipment: delhiveryTrack, getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -189,6 +190,7 @@ async function createOrder(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shipmentId', 'awbCode', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -254,6 +256,7 @@ async function getMyOrders(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shipmentId', 'awbCode', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -317,6 +320,7 @@ async function getOrderById(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shipmentId', 'awbCode', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -447,55 +451,55 @@ async function trackOrderStatus(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shipmentId', 'awbCode', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ]
     });
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
-    // Note: shipmentId field doesn't exist in database yet
-    // After running the migration, uncomment the check below and remove this return
-    return res.status(200).json({
-      message: "Order tracking is not available yet. Shipment tracking will be available after the order is shipped.",
-      orderId: order.id,
-      status: order.status
-    });
-    
-    // Uncomment below after running migration to add shipping fields
-    /*
-    if (!order.shipmentId) {
-      return res
-        .status(404)
-        .json({ message: "Shipment not yet created for this order." });
+
+    const awb = order.awbCode;
+    if (getDelhiveryConfig().isConfigured && awb) {
+      const result = await delhiveryTrack(awb);
+      if (result.success) {
+        return res.status(200).json({
+          message: "Tracking fetched successfully.",
+          orderId: order.id,
+          status: order.status,
+          awb,
+          tracking: result.tracking,
+          scans: result.scans,
+          labelUrl: order.shippingLabelUrl,
+        });
+      }
     }
-    const token = await getShiprocketToken();
-    const trackUrl = `https://apiv2.shiprocket.in/v1/external/courier/track/shipment/${order.shipmentId}`;
-    const response = await fetch(trackUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 15000,
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      const message = data?.message || "Failed to track shipment";
-      throw new Error(
-        `Shiprocket tracking API error [${response.status}]: ${message}`
-      );
-    }
-    if (!data?.tracking_data || !data.tracking_data.track_url) {
-      return res.status(200).json({
-        message:
-          "Tracking information not available yet. Please check back later.",
-        tracking: null,
+
+    if (order.shipmentId && !getDelhiveryConfig().isConfigured) {
+      const token = await getShiprocketToken();
+      const trackUrl = `https://apiv2.shiprocket.in/v1/external/courier/track/shipment/${order.shipmentId}`;
+      const response = await fetch(trackUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000,
       });
+      const data = await response.json();
+      if (response.ok && (data?.tracking_data?.track_url || data?.tracking_data)) {
+        return res.status(200).json({
+          message: "Tracking fetched successfully.",
+          tracking: data.tracking_data,
+        });
+      }
     }
-    res.status(200).json({
-      message: "Tracking fetched successfully.",
-      tracking: data.tracking_data,
+
+    return res.status(200).json({
+      message: order.awbCode ? "Tracking not available yet. Please check back later." : "Shipment not yet created for this order.",
+      orderId: order.id,
+      status: order.status,
+      tracking: null,
     });
-    */
   } catch (err) {
     console.error("Tracking error:", err.message);
     res.status(500).json({

@@ -149,31 +149,37 @@ async function updateCaseDetail(req, res) {
     const { id } = req.params;
     const { productId, brandId, modelId, color, material, caseType } = req.body;
 
-    // Check if case detail exists
     const caseDetail = await CaseDetails.findByPk(id);
     if (!caseDetail) {
       return res.status(404).json({ message: "Case detail not found" });
     }
 
-    // Validate brand and model if provided
-    if (brandId) {
+    if (productId !== undefined) {
+      const product = await Product.findByPk(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found." });
+      }
+    }
+
+    if (brandId !== undefined && brandId !== null && brandId !== "") {
       const brand = await MobileBrands.findByPk(brandId);
       if (!brand) {
         return res.status(404).json({ message: "Mobile brand not found." });
       }
     }
 
-    if (modelId) {
+    if (modelId !== undefined && modelId !== null && modelId !== "") {
+      const effectiveBrandId = brandId ?? caseDetail.brandId;
       const model = await MobileModels.findOne({
-        where: { id: modelId, brandId: brandId || caseDetail.brandId }
+        where: { id: modelId, brandId: effectiveBrandId }
       });
       if (!model) {
         return res.status(404).json({ message: "Mobile model not found or does not belong to the specified brand." });
       }
     }
 
-    // Prepare update data (only update provided fields)
     const updateData = {};
+    if (productId !== undefined) updateData.productId = productId;
     if (brandId !== undefined) updateData.brandId = brandId;
     if (modelId !== undefined) updateData.modelId = modelId;
     if (color !== undefined) updateData.color = color;
@@ -184,7 +190,6 @@ async function updateCaseDetail(req, res) {
       where: { id: id },
     });
 
-    // Fetch updated case detail with associations
     const updatedCaseDetail = await CaseDetails.findByPk(id, {
       include: [
         { model: Product, as: "product", include: [{ model: Category, as: "category" }] },

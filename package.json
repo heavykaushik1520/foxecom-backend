@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "migrate:delhivery": "node scripts/run-delhivery-migration.js",
+    "migrate:shipping": "node scripts/run-all-shipping-migration.js"
   },
   "keywords": [],
   "author": "",

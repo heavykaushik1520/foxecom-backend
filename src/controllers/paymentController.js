@@ -2,6 +2,8 @@
 const { Order, OrderItem, Product } = require("../models");
 const payuConfig = require("../config/payu");
 const { sendOrderEmails } = require("../utils/sendOrderEmails");
+const { createOrderShipment } = require("../services/delhivery/orderShipment");
+const { getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
 
 /**
  * Verify PayU response hash (callback). Never skip in production or test.
@@ -228,8 +230,34 @@ async function payuSuccessCallback(req, res) {
             .then((r) => console.log("Order emails sent:", r))
             .catch((err) => console.error("Error sending order emails:", err));
         }
+
+        const delhiveryConfig = getDelhiveryConfig();
+        if (delhiveryConfig.isConfigured) {
+          console.log("[Delhivery] Creating shipment for order", order.id, "pinCode:", completeOrder.pinCode);
+          const shipResult = await createOrderShipment(completeOrder, { fetchWaybill: false });
+          if (shipResult.success) {
+            try {
+              await Order.update(
+                {
+                  shipmentId: shipResult.shipmentId,
+                  awbCode: shipResult.awb || shipResult.waybill,
+                  shippingLabelUrl: shipResult.labelUrl,
+                  shipmentStatus: "created",
+                },
+                { where: { id: order.id } }
+              );
+              console.log("[Delhivery] Auto shipment created for order", order.id, "AWB:", shipResult.waybill);
+            } catch (updateErr) {
+              console.error("[Delhivery] Shipment created at Delhivery but DB update failed for order", order.id, updateErr.message);
+            }
+          } else {
+            console.warn("[Delhivery] Auto shipment FAILED for order", order.id, "reason:", shipResult.error);
+          }
+        } else {
+          console.warn("[Delhivery] Skipping auto shipment: not configured. Set in .env: DELHIVERY_API_KEY, DELHIVERY_BASE_URL, DELHIVERY_PICKUP_LOCATION or DELHIVERY_WAREHOUSE_CODE");
+        }
       } catch (emailErr) {
-        console.error("Error preparing order emails:", emailErr);
+        console.error("[Delhivery] Error in post-payment job (emails/shipment):", emailErr.message);
       }
     });
 

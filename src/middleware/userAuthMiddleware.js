@@ -15,18 +15,18 @@ function isUser(req, res, next) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded; // e.g., { userId, role }
 
-    // Sliding Expiration Logic
-    const now = Math.floor(Date.now() / 1000); // Current time in seconds
+    // Sliding Expiration Logic: keep session for 365 days, refresh when less than 30 days left
+    const now = Math.floor(Date.now() / 1000);
     const timeUntilExpiry = decoded.exp - now;
-    const REFRESH_THRESHOLD = 4 * 60 * 60; // Refresh if less than 4 hours remaining
+    const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
+    const REFRESH_THRESHOLD = THIRTY_DAYS_SEC; // Refresh if less than 30 days remaining
 
     if (timeUntilExpiry < REFRESH_THRESHOLD) {
       const newToken = jwt.sign(
         { userId: decoded.userId, role: decoded.role },
         process.env.JWT_SECRET,
-        { expiresIn: "24h" }
+        { expiresIn: "365d" }
       );
-      // Send new token in header
       res.setHeader('x-auth-token', newToken);
     }
 

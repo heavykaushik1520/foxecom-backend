@@ -26,9 +26,9 @@ async function loginAdmin(req, res) {
       const token = jwt.sign(
         { adminId: admin.id, role: admin.role },
         process.env.JWT_SECRET ,
-        { expiresIn: "24h" }
+        { expiresIn: "365d" }
       );
-      return res.status(200).json({ message: "Login successful", token });
+      return res.status(200).json({ message: "Login successful", token, role: admin.role });
     } catch (jwtError) {
       console.error("JWT signing error:", jwtError);
       return res.status(500).json({ message: "Failed to generate token", error: jwtError.message });

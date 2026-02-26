@@ -47,6 +47,7 @@ const Order = sequelize.define(
     awbCode: { type: DataTypes.STRING, allowNull: true },
     courierName: { type: DataTypes.STRING, allowNull: true },
     shipmentStatus: { type: DataTypes.STRING, defaultValue: "not created" },
+    shippingLabelUrl: { type: DataTypes.STRING(500), allowNull: true, field: "shipping_label_url" },
   },
   {
     tableName: "orders",

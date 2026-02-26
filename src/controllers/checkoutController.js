@@ -92,7 +92,7 @@ async function getCheckoutSummary(req, res) {
     }
 
     // Calculate shipping (you can add shipping logic here)
-    const shippingCost = totalAmount > 1000 ? 0 : 50; // Free shipping above ₹1000
+    const shippingCost = totalAmount > 1000 ? 0 : 0; // Free shipping above ₹1000
     const finalTotal = totalAmount + shippingCost;
 
     res.status(200).json({

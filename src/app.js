@@ -35,7 +35,10 @@ const mobileModelsRoutes = require('./routes/mobileModelsRoutes');
 const caseDetailsRoutes = require('./routes/caseDetailsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
+const delhiveryRoutes = require('./routes/delhiveryRoutes');
 
+const adminReviewRoutes = require('./routes/adminReviewRoutes');
+const superadminRoutes = require('./routes/superadminRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
 const path = require('path');
@@ -123,6 +126,9 @@ app.use('/api', adminProductRoutes);
 //admin dashboard routes
 app.use('/api', adminDashboardRoutes);
 
+// superadmin routes (only role superadmin can access)
+app.use('/api/superadmin', superadminRoutes);
+
 //checkout routes
 app.use('/api', checkoutRoutes);
 
@@ -148,12 +154,16 @@ app.use('/api', mobileBrandsRoutes);
 app.use('/api', mobileModelsRoutes);
 app.use('/api', caseDetailsRoutes);
 app.use('/api', reviewRoutes);
+app.use('/api', adminReviewRoutes);
 
 // Contact form route
 app.use("/api", contactRoutes);
 
 // Banner (billboard) routes – public GET /api/banners, admin CRUD under /api/admin/banners
 app.use("/api", bannerRoutes);
+
+// Delhivery shipping – backend only; admin for write, some read for tracking
+app.use("/api/shipping/delhivery", delhiveryRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {

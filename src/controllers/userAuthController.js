@@ -69,7 +69,7 @@ async function signinUser(req, res) {
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       process.env.JWT_SECRET ,
-      { expiresIn: "24h" }
+      { expiresIn: "365d" }
     );
 
     res.status(200).json({ message: "Sign in successful!", token });
@@ -114,7 +114,7 @@ function refreshToken(req, res) {
       payload,
       process.env.JWT_SECRET ,
       {
-        expiresIn: "10m", // match your session timeout policy
+        expiresIn: "365d",
       }
     );
 

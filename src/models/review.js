@@ -15,7 +15,11 @@ const Review = sequelize.define(
     },
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
+    },
+    reviewerName: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
     },
     rating: {
       type: DataTypes.INTEGER,
@@ -33,13 +37,7 @@ const Review = sequelize.define(
   {
     tableName: "reviews",
     timestamps: true,
-    indexes: [
-      {
-        unique: true,
-        fields: ["productId", "userId"],
-        name: "unique_user_product_review",
-      },
-    ],
+    indexes: [{ fields: ["productId"] }],
   }
 );
 

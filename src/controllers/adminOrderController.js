@@ -17,6 +17,7 @@ async function getAllOrdersForAdmin(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -62,6 +63,7 @@ async function getOrderById(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
@@ -93,7 +95,7 @@ async function getOrderById(req, res) {
 async function updateOrderStatus(req, res) {
   try {
     const { id } = req.params;
-    const { status, shiprocketOrderId, shipmentId, awbCode, courierName, shipmentStatus } = req.body;
+    const { status, shiprocketOrderId, shipmentId, awbCode, courierName, shipmentStatus, shippingLabelUrl } = req.body;
 
     // Validate status
     const validStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
@@ -117,6 +119,7 @@ async function updateOrderStatus(req, res) {
     if (awbCode !== undefined) updateData.awbCode = awbCode;
     if (courierName !== undefined) updateData.courierName = courierName;
     if (shipmentStatus !== undefined) updateData.shipmentStatus = shipmentStatus;
+    if (shippingLabelUrl !== undefined) updateData.shippingLabelUrl = shippingLabelUrl;
 
     await order.update(updateData);
 
@@ -127,6 +130,7 @@ async function updateOrderStatus(req, res) {
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
+        'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
         'createdAt', 'updatedAt'
       ],
       include: [
