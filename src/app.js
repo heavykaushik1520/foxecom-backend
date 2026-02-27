@@ -5,12 +5,13 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const session = require('express-session');
+const passport = require('passport');
 require('dotenv').config();
 
+const { sequelize, testConnection } = require('./config/db');
 
-const { sequelize, testConnection } = require('./config/db'); 
-
-const models = require('./models'); 
+const models = require('./models');
 
 //routes
 const authRoutes = require('./routes/authRoutes');
@@ -37,6 +38,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 const delhiveryRoutes = require('./routes/delhiveryRoutes');
 const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
+const googleAuthRoutes = require('./routes/googleAuthRoutes');
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
@@ -44,13 +46,31 @@ const app = express();
 const port = process.env.PORT || 3000;
 const path = require('path');
 
-// Middleware 
-// app.use(cors());
+// Middleware
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Session configuration – used only for OAuth handshakes, app auth remains JWT-based
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'change-this-session-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: false, // set true when behind HTTPS in production
+      sameSite: 'lax',
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
+// Passport (Google OAuth)
+require('./config/passport')(passport);
+app.use(passport.initialize());
+app.use(passport.session());
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -99,6 +119,9 @@ async function syncDatabase() {
   }
 }
 syncDatabase(); 
+
+// OAuth routes (Google)
+app.use('/api', googleAuthRoutes);
 
 // Use your authentication routes
 app.use('/api/auth', authRoutes);
