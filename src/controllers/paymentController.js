@@ -2,6 +2,7 @@
 const { Order, OrderItem, Product } = require("../models");
 const payuConfig = require("../config/payu");
 const { sendOrderEmails } = require("../utils/sendOrderEmails");
+const { sendShipmentEmailToCustomer } = require("../utils/sendOrderEmails");
 const { createOrderShipment } = require("../services/delhivery/orderShipment");
 const { getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
 
@@ -247,6 +248,21 @@ async function payuSuccessCallback(req, res) {
                 { where: { id: order.id } }
               );
               console.log("[Delhivery] Auto shipment created for order", order.id, "AWB:", shipResult.waybill);
+              // Send shipment email to customer (safe to call even if AWB existed)
+              try {
+                const trackBase = process.env.FRONTEND_URL || "";
+                const trackUrl = trackBase
+                  ? `${trackBase.replace(/\/+$/, "")}/order/${order.id}/track`
+                  : null;
+                await sendShipmentEmailToCustomer({
+                  order: completeOrder.toJSON ? completeOrder.toJSON() : completeOrder,
+                  awb: shipResult.awb || shipResult.waybill,
+                  labelUrl: shipResult.labelUrl || null,
+                  trackUrl,
+                });
+              } catch (shipMailErr) {
+                console.error("[Delhivery] Shipment email send failed (auto create)", shipMailErr.message);
+              }
             } catch (updateErr) {
               console.error("[Delhivery] Shipment created at Delhivery but DB update failed for order", order.id, updateErr.message);
             }

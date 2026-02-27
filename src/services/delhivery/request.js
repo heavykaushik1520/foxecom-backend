@@ -46,14 +46,18 @@ async function delhiveryRequest(url, options = {}, retries = DEFAULT_RETRIES) {
         return { ok: true, status: res.status, data };
       }
 
-      lastError = data && (data.message || data.error) ? String(data.message || data.error) : `HTTP ${res.status}`;
+      let lastErrorMsg = `HTTP ${res.status}`;
+      if (data != null) {
+        if (typeof data === 'object' && (data.message || data.error)) lastErrorMsg = String(data.message || data.error);
+        else if (typeof data === 'string' && data.trim()) lastErrorMsg = data.trim().slice(0, 200);
+      }
 
       if (res.status >= 500 && attempt < retries) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
 
-      return { ok: false, status: res.status, data, error: lastError };
+      return { ok: false, status: res.status, data, error: lastErrorMsg };
     } catch (err) {
       lastError = err.message || 'Network error';
       if (attempt < retries) {

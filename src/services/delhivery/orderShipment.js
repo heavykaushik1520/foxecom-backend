@@ -28,7 +28,8 @@ async function prepareOrderForShipment(order, fetchWaybill = false) {
     return { canCreate: false, error: 'Invalid pincode' };
   }
 
-  const serviceability = await pincodeServiceability(pin);
+  const paymentMode = (order.paymentMode || '').toUpperCase();
+  const serviceability = await pincodeServiceability(pin, { paymentMode });
   if (!serviceability.success) {
     return { canCreate: false, error: serviceability.error || 'Pincode check failed' };
   }
@@ -36,9 +37,9 @@ async function prepareOrderForShipment(order, fetchWaybill = false) {
     return { canCreate: false, serviceable: false, error: 'Pincode not serviceable by Delhivery' };
   }
 
-  const { pickupLocation, warehouseCode } = getDelhiveryConfig();
-  const originPin = process.env.DELHIVERY_ORIGIN_PIN || ''; 
-  const tatResult = await getTAT(originPin || '400001', pin, 500);
+  const { pickupLocation, warehouseCode, originPin } = getDelhiveryConfig();
+  const origin = originPin || process.env.DELHIVERY_ORIGIN_PIN || '';
+  const tatResult = await getTAT(origin || '400001', pin, 500);
   const tatDays = tatResult.success ? tatResult.tatDays : null;
 
   let waybill = null;

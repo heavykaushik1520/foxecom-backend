@@ -588,3 +588,172 @@ module.exports = {
   getCustomerEmailHTML,
   getAdminEmailHTML,
 };
+
+/**
+ * Send shipment confirmation email to customer when Delhivery shipment is created.
+ * Uses SMTP_USER as sender. Safe to call multiple times – email is idempotent in effect.
+ * @param {Object} params
+ * @param {Object} params.order - Order instance or plain object with at least id, firstName, lastName, emailAddress
+ * @param {string} params.awb - AWB / waybill number
+ * @param {string|null} [params.labelUrl] - Optional label URL
+ * @param {string|null} [params.trackUrl] - Optional frontend track URL
+ */
+async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackUrl = null }) {
+  if (!order || !order.emailAddress || !awb) {
+    console.warn('[ShipmentEmail] Skipping – missing order/email/awb', {
+      hasOrder: Boolean(order),
+      hasEmail: Boolean(order && order.emailAddress),
+      hasAwb: Boolean(awb),
+    });
+    return;
+  }
+
+  const transporter = createTransporter();
+  const fromEmail = process.env.SMTP_USER;
+  const frontendBase = process.env.FRONTEND_URL || '';
+  const safeTrackUrl =
+    trackUrl ||
+    (frontendBase
+      ? `${frontendBase.replace(/\/+$/, '')}/order/${order.id}/track`
+      : null);
+
+  const subject = `Your order #${order.id} has been shipped – AWB ${awb}`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shipment Update</title>
+</head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f5f5f5;">
+  <table role="presentation" style="width:100%;border-collapse:collapse;">
+    <tr>
+      <td style="padding:24px 0;">
+        <table role="presentation" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+          <tr>
+            <td style="background:#0d6efd;padding:24px 24px 20px;text-align:left;">
+              <h1 style="margin:0;font-size:22px;color:#ffffff;">Your order is on the way</h1>
+              <p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,0.9);">
+                Order #${order.id} • AWB ${awb}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <p style="margin:0 0 12px;font-size:15px;color:#333;">
+                Hi <strong>${order.firstName || ''} ${order.lastName || ''}</strong>,
+              </p>
+              <p style="margin:0 0 16px;font-size:14px;color:#555;line-height:1.6;">
+                Your order has been handed over to our courier partner. You can use the details below to track your delivery.
+              </p>
+
+              <table role="presentation" style="width:100%;background:#f8f9fa;border-radius:6px;margin:0 0 16px;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0 0 6px;font-size:14px;color:#666;">
+                      <span style="color:#6c757d;">Order number:</span>
+                      <span style="float:right;color:#212529;font-weight:600;">#${order.id}</span>
+                    </p>
+                    <p style="margin:0 0 6px;font-size:14px;color:#666;">
+                      <span style="color:#6c757d;">AWB / Waybill:</span>
+                      <span style="float:right;color:#212529;font-weight:600;">${awb}</span>
+                    </p>
+                    ${
+                      labelUrl
+                        ? `<p style="margin:0 0 6px;font-size:14px;">
+                      <span style="color:#6c757d;">Label:</span>
+                      <span style="float:right;">
+                        <a href="${labelUrl}" style="color:#0d6efd;text-decoration:none;" target="_blank" rel="noopener noreferrer">
+                          View / Print
+                        </a>
+                      </span>
+                    </p>`
+                        : ''
+                    }
+                  </td>
+                </tr>
+              </table>
+
+              ${
+                safeTrackUrl
+                  ? `<div style="margin:0 0 20px;text-align:center;">
+                <a href="${safeTrackUrl}" target="_blank" rel="noopener noreferrer"
+                   style="display:inline-block;padding:10px 20px;border-radius:999px;background:#0d6efd;color:#ffffff;font-size:14px;font-weight:500;text-decoration:none;">
+                  Track your order
+                </a>
+              </div>`
+                  : ''
+              }
+
+              <p style="margin:0 0 4px;font-size:13px;color:#666;">
+                <strong>Shipping to:</strong>
+              </p>
+              <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.5;">
+                ${order.fullAddress || ''}<br/>
+                ${order.townOrCity || ''}, ${order.state || ''} - ${order.pinCode || ''}<br/>
+                ${order.country || ''}
+              </p>
+
+              <p style="margin:0;font-size:12px;color:#999;line-height:1.6;">
+                If you have any questions about your delivery, just reply to this email and our team will be happy to help.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f1f3f5;padding:16px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#868e96;">
+                © ${new Date().getFullYear()} FoxEcom. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+  const text = `Your shipment is on the way.
+
+Order #${order.id}
+AWB / Waybill: ${awb}
+
+${safeTrackUrl ? `Track your order: ${safeTrackUrl}\n\n` : ''}
+Shipping to:
+${order.fullAddress || ''}
+${order.townOrCity || ''}, ${order.state || ''} - ${order.pinCode || ''}
+${order.country || ''}
+`;
+
+  try {
+    await transporter.sendMail({
+      from: `"FoxEcom Orders" <${fromEmail}>`,
+      to: order.emailAddress,
+      subject,
+      text,
+      html,
+    });
+    console.log('[ShipmentEmail] Shipment email sent to customer', {
+      orderId: order.id,
+      email: order.emailAddress,
+      awb,
+    });
+  } catch (err) {
+    console.error('[ShipmentEmail] Failed to send shipment email', {
+      orderId: order.id,
+      email: order.emailAddress,
+      awb,
+      error: err.message,
+    });
+  }
+}
+
+module.exports = {
+  sendOrderEmails,
+  getCustomerEmailHTML,
+  getAdminEmailHTML,
+  sendShipmentEmailToCustomer,
+};

@@ -245,8 +245,13 @@ async function getMyOrders(req, res) {
 
     // Build where clause
     const where = { userId };
-    if (status && ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'].includes(status)) {
+    const validStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled'];
+    if (status && validStatuses.includes(status)) {
+      // Respect explicit status filter if it is valid
       where.status = status;
+    } else {
+      // Default: show only paid orders for customers
+      where.status = 'paid';
     }
 
     const { count, rows: orders } = await Order.findAndCountAll({

@@ -49,11 +49,11 @@ Only **after a successful PayU payment**, when the user is redirected to your su
 
 | Reason | What you see in backend logs | What to do |
 |--------|------------------------------|------------|
-| **Delhivery not configured** | `[Delhivery] Skipping auto shipment: not configured` | Set in `.env`: `DELHIVERY_API_KEY`, `DELHIVERY_BASE_URL`, and `DELHIVERY_PICKUP_LOCATION` or `DELHIVERY_WAREHOUSE_CODE`. Restart server. |
+| **Delhivery not configured** | `[Delhivery] Skipping auto shipment: not configured` | Set in `.env`: `DELHIVERY_API_KEY`, `DELHIVERY_BASE_URL`, `DELHIVERY_PICKUP_LOCATION` or `DELHIVERY_WAREHOUSE_CODE`. For B2C set `DELHIVERY_CLIENT` (e.g. REDECOMSURFACE-B2C). Restart server. |
 | **Order already paid** | No Delhivery log for this request | Shipment runs only when status *changes* to paid. For already-paid orders use admin “Create shipment” API. |
 | **Invalid or non-serviceable pincode** | `[Delhivery OrderShipment] Prepare failed` with `error: "Pincode not serviceable by Delhivery"` or `"Invalid pincode"` | Use a real, serviceable 6-digit Indian pincode. Example: test with 400001 (Mumbai). Pincode like `000000` will not be serviceable. |
 | **Pincode API / network error** | `[Delhivery OrderShipment] Prepare failed` with error like "Pincode check failed" or API error | Check Delhivery staging URL, API key, and network. |
-| **Create API failed** | `[Delhivery] Auto shipment FAILED for order <id> reason: <...>` or `[Delhivery OrderShipment] Create failed` | Check full error (auth, `client`/pickup name, mandatory fields). Ensure `DELHIVERY_PICKUP_LOCATION` / `DELHIVERY_WAREHOUSE_CODE` match exactly what is registered with Delhivery (case-sensitive). |
+| **Create API failed** | `[Delhivery] Auto shipment FAILED for order <id> reason: <...>` or `[Delhivery OrderShipment] Create failed` | Check full error (auth, client/pickup name, mandatory fields). Set `DELHIVERY_CLIENT` (e.g. REDECOMSURFACE-B2C) and ensure `DELHIVERY_PICKUP_LOCATION` / `DELHIVERY_WAREHOUSE_CODE` match exactly what is registered with Delhivery (case-sensitive). |
 | **DB update failed after create** | `[Delhivery] Shipment created at Delhivery but DB update failed` | Run migrations so `orders` has `shipmentId`, `awbCode`, `shipping_label_url`, `shipmentStatus`. Then for that order you can either re-trigger create or update AWB manually from Delhivery dashboard. |
 | **Exception in background job** | `[Delhivery] Error in post-payment job (emails/shipment): <message>` | Fix the reported error (e.g. missing column, bad payload). |
 
@@ -78,6 +78,8 @@ Only **after a successful PayU payment**, when the user is redirected to your su
 ## Quick checklist
 
 - [ ] `.env` has `DELHIVERY_API_KEY`, `DELHIVERY_BASE_URL`, `DELHIVERY_PICKUP_LOCATION` or `DELHIVERY_WAREHOUSE_CODE`.
+- [ ] For B2C: set `DELHIVERY_CLIENT` (e.g. `REDECOMSURFACE-B2C`) for waybill and create API.
+- [ ] Optional: `DELHIVERY_ORIGIN_PIN` (warehouse pincode) for TAT (expected delivery days) API.
 - [ ] Order pincode is 6 digits and **serviceable** by Delhivery (not e.g. 000000).
 - [ ] PayU success callback is hit (user is redirected to success page after payment).
 - [ ] Backend logs show either “Creating shipment for order X” or “Skipping auto shipment: not configured”.

@@ -16,6 +16,7 @@ const {
 } = require('../services/delhivery/delhiveryApi');
 const { createOrderShipment, prepareOrderForShipment } = require('../services/delhivery/orderShipment');
 const { Order } = require('../models');
+const { sendShipmentEmailToCustomer } = require('../utils/sendOrderEmails');
 
 function sendError(res, status, message, error = null) {
   res.status(status).json({ success: false, message, ...(error && { error }) });
@@ -114,6 +115,21 @@ async function createShipmentRoute(req, res) {
       shippingLabelUrl: result.labelUrl || order.shippingLabelUrl,
       shipmentStatus: 'created',
     });
+    // Fire-and-forget: email shipment details to customer
+    try {
+      const trackBase = process.env.FRONTEND_URL || '';
+      const trackUrl = trackBase
+        ? `${trackBase.replace(/\/+$/, '')}/order/${order.id}/track`
+        : null;
+      await sendShipmentEmailToCustomer({
+        order: order.toJSON ? order.toJSON() : order,
+        awb: result.awb || result.waybill,
+        labelUrl: result.labelUrl || null,
+        trackUrl,
+      });
+    } catch (mailErr) {
+      console.error('[Delhivery] Shipment email send failed (admin create)', mailErr.message);
+    }
     res.status(201).json({
       success: true,
       waybill: result.waybill,
@@ -200,7 +216,15 @@ async function trackShipmentRoute(req, res) {
     if (!result.success) {
       return sendError(res, 400, result.error || 'Tracking failed');
     }
-    res.status(200).json({ success: true, tracking: result.tracking, scans: result.scans });
+    res.status(200).json({
+      success: true,
+      status: result.status || null,
+      statusCode: result.statusCode || null,
+      statusLocation: result.statusLocation || null,
+      statusDateTime: result.statusDateTime || null,
+      scans: result.scans || [],
+      tracking: result.raw || null, // keep legacy field name for backward compatibility
+    });
   } catch (err) {
     console.error('[Delhivery] trackShipment error', err);
     sendError(res, 500, 'Failed to track shipment', err.message);
@@ -233,8 +257,10 @@ async function configStatus(req, res) {
       configured: config.isConfigured,
       baseUrl: config.baseUrl ? '[SET]' : null,
       hasApiKey: Boolean(config.apiKey),
+      client: config.client || null,
       pickupLocation: config.pickupLocation || null,
       warehouseCode: config.warehouseCode || null,
+      originPin: config.originPin || null,
     });
   } catch (err) {
     sendError(res, 500, 'Config check failed', err.message);
