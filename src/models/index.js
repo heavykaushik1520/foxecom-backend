@@ -12,6 +12,8 @@ const MobileModels = require('./mobileModels');
 const CaseDetails = require('./caseDetails');
 const Review = require('./review');
 const Banner = require('./banner');
+const DealOfTheWeek = require('./dealOfTheWeek');
+const DealOfTheWeekProduct = require('./dealOfTheWeekProduct');
 
 const models = {
   Admin,
@@ -28,6 +30,8 @@ const models = {
   CaseDetails,
   Review,
   Banner,
+  DealOfTheWeek,
+  DealOfTheWeekProduct,
 };
 
 // Apply associations

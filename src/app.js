@@ -36,6 +36,7 @@ const caseDetailsRoutes = require('./routes/caseDetailsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 const delhiveryRoutes = require('./routes/delhiveryRoutes');
+const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
@@ -164,6 +165,9 @@ app.use("/api", bannerRoutes);
 
 // Delhivery shipping – backend only; admin for write, some read for tracking
 app.use("/api/shipping/delhivery", delhiveryRoutes);
+
+// Deal of the Week routes – public GET, admin CRUD
+app.use("/api", dealOfTheWeekRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {
