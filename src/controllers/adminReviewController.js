@@ -1,4 +1,4 @@
-const { Review, Product } = require("../models");
+const { Review, Product, ProductRatingSummary } = require("../models");
 const { Op } = require("sequelize");
 
 /**
@@ -147,9 +147,100 @@ async function deleteReview(req, res) {
   }
 }
 
+/**
+ * Get admin star-rating summary for a product (counts per star 1-5).
+ * GET /admin/products/:productId/rating-summary
+ */
+async function getRatingSummary(req, res) {
+  try {
+    const { productId } = req.params;
+    const productIdNum = parseInt(productId, 10);
+    const product = await Product.findByPk(productIdNum);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+    let summary = await ProductRatingSummary.findOne({
+      where: { productId: productIdNum },
+    });
+    if (!summary) {
+      return res.json({
+        ratingSummary: {
+          count1: 0,
+          count2: 0,
+          count3: 0,
+          count4: 0,
+          count5: 0,
+        },
+      });
+    }
+    return res.json({
+      ratingSummary: {
+        count1: summary.count1,
+        count2: summary.count2,
+        count3: summary.count3,
+        count4: summary.count4,
+        count5: summary.count5,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching rating summary:", error);
+    return res.status(500).json({ message: "Failed to fetch rating summary." });
+  }
+}
+
+/**
+ * Update admin star-rating summary for a product.
+ * PUT /admin/products/:productId/rating-summary
+ * Body: { count1, count2, count3, count4, count5 } (all optional, non-negative integers)
+ */
+async function updateRatingSummary(req, res) {
+  try {
+    const { productId } = req.params;
+    const { count1, count2, count3, count4, count5 } = req.body;
+    const productIdNum = parseInt(productId, 10);
+    const product = await Product.findByPk(productIdNum);
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+    const clamp = (v) => Math.max(0, parseInt(v, 10) || 0);
+    const payload = {
+      count1: clamp(count1),
+      count2: clamp(count2),
+      count3: clamp(count3),
+      count4: clamp(count4),
+      count5: clamp(count5),
+    };
+    let summary = await ProductRatingSummary.findOne({
+      where: { productId: productIdNum },
+    });
+    if (summary) {
+      await summary.update(payload);
+    } else {
+      summary = await ProductRatingSummary.create({
+        productId: productIdNum,
+        ...payload,
+      });
+    }
+    return res.json({
+      ratingSummary: {
+        count1: summary.count1,
+        count2: summary.count2,
+        count3: summary.count3,
+        count4: summary.count4,
+        count5: summary.count5,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating rating summary:", error);
+    return res.status(500).json({ message: "Failed to update rating summary." });
+  }
+}
+
 module.exports = {
   getAllReviews,
   getReviewsByProduct,
+  getRatingSummary,
+  updateRatingSummary,
   createReview,
   updateReview,
   deleteReview,

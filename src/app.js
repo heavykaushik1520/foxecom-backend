@@ -38,6 +38,7 @@ const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 const delhiveryRoutes = require('./routes/delhiveryRoutes');
 const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
+const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
 const googleAuthRoutes = require('./routes/googleAuthRoutes');
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
@@ -191,6 +192,9 @@ app.use("/api/shipping/delhivery", delhiveryRoutes);
 
 // Deal of the Week routes – public GET, admin CRUD
 app.use("/api", dealOfTheWeekRoutes);
+
+// Buy One Get One routes – public GET, admin CRUD
+app.use("/api", buyOneGetOneRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {

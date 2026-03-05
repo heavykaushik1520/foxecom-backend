@@ -83,6 +83,10 @@ Product.associate = (models) => {
     as: "reviews",
     onDelete: "CASCADE",
   });
+  Product.hasOne(models.ProductRatingSummary, {
+    foreignKey: "productId",
+    as: "ratingSummary",
+  });
 };
 
 module.exports = Product;
