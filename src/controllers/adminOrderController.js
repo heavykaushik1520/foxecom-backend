@@ -13,7 +13,8 @@ async function getAllOrdersForAdmin(req, res) {
       limit,
       offset,
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -59,7 +60,8 @@ async function getOrderById(req, res) {
     const order = await Order.findOne({
       where: { id },
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -126,7 +128,8 @@ async function updateOrderStatus(req, res) {
     // Fetch updated order with associations
     const updatedOrder = await Order.findByPk(id, {
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 

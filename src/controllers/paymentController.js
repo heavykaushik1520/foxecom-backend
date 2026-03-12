@@ -59,7 +59,9 @@ async function createPayuPayment(req, res) {
     const order = await Order.findOne({
       where: { id: orderId, userId },
       attributes: [
-        "id", "userId", "totalAmount", "firstName", "lastName",
+        "id", "userId", "totalAmount", "subtotal", "discountAmount", "upiDiscountPercent",
+        "preferredPaymentMethod",
+        "firstName", "lastName",
         "mobileNumber", "emailAddress", "fullAddress", "townOrCity",
         "country", "state", "pinCode", "status",
         "payuTxnId", "payuPaymentId",
@@ -112,6 +114,11 @@ async function createPayuPayment(req, res) {
       udf4: "",
       udf5: "",
     };
+
+    // When customer chose UPI for repeat-purchase discount, open PayU in UPI mode
+    if (String(order.preferredPaymentMethod || "").toUpperCase() === "UPI") {
+      paymentParams.mode = "UPI";
+    }
 
     const payuClient = payuConfig.getPayuClient();
     const paymentFormHtml = payuClient.paymentInitiate(paymentParams);

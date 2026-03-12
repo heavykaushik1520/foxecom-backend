@@ -88,7 +88,7 @@ async function submitContactForm(req, res) {
 
     // Send to admin/support
     await transporter.sendMail({
-      from: `"FoxEcom Contact" <${fromEmail}>`,
+      from: `"Foxecom Contact" <${fromEmail}>`,
       to: receiver,
       subject,
       text,
@@ -99,10 +99,10 @@ async function submitContactForm(req, res) {
     // Optional auto-reply to user (standard UX)
     try {
       await transporter.sendMail({
-        from: `"FoxEcom Support" <${fromEmail}>`,
+        from: `"Foxecom Support" <${fromEmail}>`,
         to: trimmedEmail,
         subject: "We received your message",
-        text: `Hi ${trimmedName},\n\nThanks for contacting FoxEcom. We received your message and will get back to you soon.\n\nYour message:\n${trimmedMessage}\n\nRegards,\nFoxEcom Support`,
+        text: `Hi ${trimmedName},\n\nThanks for contacting Foxecom. We received your message and will get back to you soon.\n\nYour message:\n${trimmedMessage}\n\nRegards,\nFoxEcom Support`,
       });
     } catch (autoReplyErr) {
       // don't fail the request if auto-reply fails

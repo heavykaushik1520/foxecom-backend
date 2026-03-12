@@ -1,5 +1,6 @@
 // src/utils/sendOrderEmails.js
 const nodemailer = require("nodemailer");
+const { createInvoicePdf } = require("./invoiceGenerator");
 
 // Create reusable transporter
 const createTransporter = () => {
@@ -187,7 +188,7 @@ const getCustomerEmailHTML = (order, orderItems) => {
                 If you have any questions, please contact our support team.
               </p>
               <p style="color: #aaa; margin: 0; font-size: 12px;">
-                © ${new Date().getFullYear()} FoxEcom. All rights reserved.
+                © ${new Date().getFullYear()} Foxecom. All rights reserved.
               </p>
             </td>
           </tr>
@@ -386,7 +387,7 @@ const getAdminEmailHTML = (order, orderItems) => {
                     <h4 style="margin: 0 0 10px; color: #856404;">⚡ Action Required</h4>
                     <ul style="margin: 0; padding-left: 20px; color: #856404; line-height: 1.8; font-size: 14px;">
                       <li>Process and pack this order</li>
-                      <li>Create shipment in Shiprocket</li>
+                    
                       <li>Update order status to "Processing"</li>
                     </ul>
                   </td>
@@ -400,7 +401,7 @@ const getAdminEmailHTML = (order, orderItems) => {
           <tr>
             <td style="background-color: #2c3e50; padding: 20px; text-align: center;">
               <p style="color: #bdc3c7; margin: 0; font-size: 12px;">
-                This is an automated notification from FoxEcom Admin System<br>
+                This is an automated notification from Foxecom Admin System<br>
                 Generated on ${formatDate(new Date())}
               </p>
             </td>
@@ -459,7 +460,7 @@ WHAT'S NEXT?
 
 If you have any questions, please contact our support team.
 
-© ${new Date().getFullYear()} FoxEcom. All rights reserved.
+© ${new Date().getFullYear()} Foxecom. All rights reserved.
 `;
 };
 
@@ -513,11 +514,10 @@ TOTAL: ${formatCurrency(order.totalAmount)}
 
 ACTION REQUIRED:
 - Process and pack this order
-- Create shipment in Shiprocket
 - Update order status to "Processing"
 
 ---
-Automated notification from FoxEcom Admin System
+Automated notification from Foxecom Admin System
 Generated on ${formatDate(new Date())}
 `;
 };
@@ -539,14 +539,30 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
     adminEmail: { sent: false, error: null },
   };
 
+  let invoiceBuffer = null;
+  try {
+    invoiceBuffer = await createInvoicePdf(order, orderItems);
+  } catch (err) {
+    console.error("Failed to generate invoice PDF:", err.message);
+  }
+
   // Send customer email
   try {
     const customerMailOptions = {
-      from: `"FoxEcom" <${fromEmail}>`,
+      from: `"Foxecom" <${fromEmail}>`,
       to: order.emailAddress,
       subject: `Order Confirmed! Your Order #${order.id} has been placed`,
       text: getCustomerEmailText(order, orderItems),
       html: getCustomerEmailHTML(order, orderItems),
+      attachments: invoiceBuffer
+        ? [
+            {
+              filename: `invoice-${order.id}.pdf`,
+              content: invoiceBuffer,
+              contentType: "application/pdf",
+            },
+          ]
+        : [],
     };
 
     await transporter.sendMail(customerMailOptions);
@@ -561,11 +577,20 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
   try {
     if (adminRecipient) {
       const adminMailOptions = {
-        from: `"FoxEcom Orders" <${fromEmail}>`,
+        from: `"Foxecom Orders" <${fromEmail}>`,
         to: adminRecipient,
         subject: `🛒 New Order #${order.id} - ${formatCurrency(order.totalAmount)} - Payment Received`,
         text: getAdminEmailText(order, orderItems),
         html: getAdminEmailHTML(order, orderItems),
+        attachments: invoiceBuffer
+          ? [
+              {
+                filename: `invoice-${order.id}.pdf`,
+                content: invoiceBuffer,
+                contentType: "application/pdf",
+              },
+            ]
+          : [],
       };
 
       await transporter.sendMail(adminMailOptions);
@@ -676,17 +701,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
                 </tr>
               </table>
 
-              ${
-                safeTrackUrl
-                  ? `<div style="margin:0 0 20px;text-align:center;">
-                <a href="${safeTrackUrl}" target="_blank" rel="noopener noreferrer"
-                   style="display:inline-block;padding:10px 20px;border-radius:999px;background:#0d6efd;color:#ffffff;font-size:14px;font-weight:500;text-decoration:none;">
-                  Track your order
-                </a>
-              </div>`
-                  : ''
-              }
-
+           
               <p style="margin:0 0 4px;font-size:13px;color:#666;">
                 <strong>Shipping to:</strong>
               </p>
@@ -704,7 +719,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
           <tr>
             <td style="background:#f1f3f5;padding:16px;text-align:center;">
               <p style="margin:0;font-size:11px;color:#868e96;">
-                © ${new Date().getFullYear()} FoxEcom. All rights reserved.
+                © ${new Date().getFullYear()} Foxecom. All rights reserved.
               </p>
             </td>
           </tr>
@@ -730,7 +745,7 @@ ${order.country || ''}
 
   try {
     await transporter.sendMail({
-      from: `"FoxEcom Orders" <${fromEmail}>`,
+      from: `"Foxecom Orders" <${fromEmail}>`,
       to: order.emailAddress,
       subject,
       text,

@@ -42,6 +42,7 @@ const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
 const googleAuthRoutes = require('./routes/googleAuthRoutes');
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
+const customerReviewRoutes = require('./routes/customerReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
@@ -180,6 +181,7 @@ app.use('/api', mobileModelsRoutes);
 app.use('/api', caseDetailsRoutes);
 app.use('/api', reviewRoutes);
 app.use('/api', adminReviewRoutes);
+app.use('/api', customerReviewRoutes);
 
 // Contact form route
 app.use("/api", contactRoutes);

@@ -2,12 +2,16 @@
 
 const { Cart, CartItem, Product, ProductImage, Order, OrderItem, Category } = require("../models");
 const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+const { getPaidOrderCount, getUpiDiscountPercent } = require("../utils/upiDiscountHelper");
 
 
 // Get checkout summary (cart validation + total calculation)
+// Query: ?preferredPaymentMethod=UPI|OTHER (optional; default OTHER = no discount)
 async function getCheckoutSummary(req, res) {
   try {
     const userId = req.user.userId;
+    const preferredPaymentMethod = (req.query.preferredPaymentMethod || "OTHER").toUpperCase();
+    const isUpi = preferredPaymentMethod === "UPI";
 
     // Get user's cart with products
     const cart = await Cart.findOne({
@@ -91,9 +95,16 @@ async function getCheckoutSummary(req, res) {
       });
     }
 
+    // UPI repeat-purchase discount: 2nd order 10%, 3rd order 20%, 4th+ no discount (UPI only)
+    const purchaseCount = await getPaidOrderCount(userId);
+    const nextOrderNumber = purchaseCount + 1;
+    const discountPercent = getUpiDiscountPercent(nextOrderNumber, preferredPaymentMethod);
+    const discountAmount = (totalAmount * discountPercent) / 100;
+    const amountAfterDiscount = totalAmount - discountAmount;
+
     // Calculate shipping (you can add shipping logic here)
-    const shippingCost = totalAmount > 1000 ? 0 : 0; // Free shipping above ₹1000
-    const finalTotal = totalAmount + shippingCost;
+    const shippingCost = amountAfterDiscount > 1000 ? 0 : 0; // Free shipping above ₹1000
+    const finalTotal = amountAfterDiscount + shippingCost;
 
     res.status(200).json({
       message: "Checkout summary generated successfully.",
@@ -102,6 +113,12 @@ async function getCheckoutSummary(req, res) {
         cartItems: cart.products.length,
         totalItems,
         subtotal: totalAmount.toFixed(2),
+        discountAmount: discountAmount.toFixed(2),
+        upiDiscountPercent: discountPercent,
+        preferredPaymentMethod: isUpi ? "UPI" : "OTHER",
+        purchaseCount,
+        nextOrderNumber,
+        discountLabel: discountPercent > 0 ? `${discountPercent}% UPI discount (${nextOrderNumber === 2 ? "2nd" : "3rd"} purchase)` : null,
         shipping: shippingCost.toFixed(2),
         totalAmount: finalTotal.toFixed(2),
         products: cart.products.map(product => {

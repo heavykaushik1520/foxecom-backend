@@ -158,7 +158,7 @@ async function forgotPassword(req, res) {
     });
 
     await transporter.sendMail({
-      from: `"FoxEcom Support" <${process.env.FORGOT_PASSWORD_SMTP_USER}>`,
+      from: `"Foxecom Support" <${process.env.FORGOT_PASSWORD_SMTP_USER}>`,
       to: email,
       subject: "Password Reset Request",
       html: `<p>Click <a href="${resetLink}">here</a> to reset your password. This link will expire in 1 hour.</p>`,

@@ -8,6 +8,8 @@ const { delhiveryRequest } = require('./request');
 
 const LOG_PREFIX = '[Delhivery]';
 
+const backendUrl = process.env.BACKEND_PUBLIC_URL;
+
 function log(level, msg, meta = {}) {
   const payload = { message: msg, ...meta };
   if (level === 'error') console.error(LOG_PREFIX, payload);
@@ -280,8 +282,9 @@ async function createShipment(order, options = {}) {
   const existingAwb =
     (order && (order.awbCode || order.awb || order.waybill)) || (options && (options.awb || options.waybill));
   if (existingAwb) {
+    const { apiKey } = getDelhiveryConfig();
     const existingShipmentId = order && (order.shipmentId || order.id);
-    const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${existingAwb}`;
+    const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${existingAwb}&token=${apiKey || ''}`;
     log('info', 'Shipment already exists – skipping create', {
       orderId: order && order.id,
       awb: existingAwb,
@@ -332,7 +335,10 @@ async function createShipment(order, options = {}) {
   const first = Array.isArray(packages) ? packages[0] : packages;
   const waybill = first && (first.waybill || first.awb || first.wb);
   const refId = first && (first.reference_id || first.ref_id || first.order);
-  const labelUrl = waybill ? `${getDelhiveryConfig().baseUrl}/api/p/packing_slip?wbns=${waybill}` : null;
+  const { apiKey } = getDelhiveryConfig();
+  const labelUrl = waybill
+    ? `${baseUrl}/api/p/packing_slip?wbns=${waybill}&token=${apiKey || ''}`
+    : null;
 
   log('info', 'Shipment created', { orderId: order.id, waybill, refId });
   return {
@@ -399,13 +405,13 @@ async function cancelShipment(waybill) {
  * @returns {Promise<{ success: boolean, labelUrl?: string, labelData?: object, error?: string }>}
  */
 async function getLabel(waybill) {
-  const { baseUrl, isConfigured } = getDelhiveryConfig();
+  const { baseUrl, apiKey, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
     return { success: false, error: 'Delhivery not configured' };
   }
 
-  const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${waybill}`;
-  const res = await delhiveryRequest(labelUrl, { method: 'GET', headers: authHeaders() });
+  const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${waybill}&token=${apiKey}`;
+  const res = await delhiveryRequest(labelUrl, { method: 'GET' });
 
   if (!res.ok) {
     return { success: false, error: res.error || 'Label fetch failed' };

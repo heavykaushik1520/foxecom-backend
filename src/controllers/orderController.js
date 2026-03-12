@@ -8,8 +8,10 @@ const {
   ProductImage,
 } = require("../models");
 const commonUtils = require("./commonUtils");
+const { getPaidOrderCount, getUpiDiscountPercent } = require("../utils/upiDiscountHelper");
 const { getShiprocketToken } = require("../utils/getShiprocketToken");
-const { trackShipment: delhiveryTrack, getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
+const { trackShipment: delhiveryTrack, getDelhiveryConfig, getLabel: delhiveryGetLabel } = require("../services/delhivery/delhiveryApi");
+const { createInvoicePdf } = require("../utils/invoiceGenerator");
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -32,7 +34,10 @@ async function createOrder(req, res) {
       country,
       state,
       pinCode,
+      preferredPaymentMethod: preferredPaymentMethodRaw,
     } = req.body;
+
+    const preferredPaymentMethod = String(preferredPaymentMethodRaw || "OTHER").toUpperCase();
 
     // Comprehensive validation
     const validationErrors = [];
@@ -150,10 +155,22 @@ async function createOrder(req, res) {
       });
     }
 
+    // UPI repeat-purchase discount (2nd order 10%, 3rd order 20%, UPI only)
+    const purchaseCount = await getPaidOrderCount(userId);
+    const nextOrderNumber = purchaseCount + 1;
+    const discountPercent = getUpiDiscountPercent(nextOrderNumber, preferredPaymentMethod);
+    const discountAmount = (totalAmount * discountPercent) / 100;
+    const finalTotalAmount = Math.round((totalAmount - discountAmount) * 100) / 100;
+
     // Create order
     const order = await Order.create({
       userId,
-      totalAmount: totalAmount.toFixed(2),
+      totalAmount: finalTotalAmount.toFixed(2),
+      subtotal: totalAmount.toFixed(2),
+      discountAmount: discountAmount.toFixed(2),
+      upiDiscountPercent: discountPercent,
+      preferredPaymentMethod: preferredPaymentMethod === "UPI" ? "UPI" : "OTHER",
+      orderNumberForUser: nextOrderNumber,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       mobileNumber: parseInt(mobileNumber),
@@ -186,7 +203,8 @@ async function createOrder(req, res) {
     // Explicitly select only existing columns to avoid database errors
     const completeOrder = await Order.findByPk(order.id, {
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -257,7 +275,8 @@ async function getMyOrders(req, res) {
     const { count, rows: orders } = await Order.findAndCountAll({
       where,
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -321,7 +340,8 @@ async function getOrderById(req, res) {
     const order = await Order.findOne({
       where: { id, userId },
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -401,7 +421,8 @@ async function cancelOrder(req, res) {
     const order = await Order.findOne({
       where: { id, userId },
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -452,7 +473,8 @@ async function trackOrderStatus(req, res) {
     const order = await Order.findOne({
       where: { id: orderId, userId },
       attributes: [
-        'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'firstName', 'lastName', 
         'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
@@ -514,10 +536,127 @@ async function trackOrderStatus(req, res) {
   }
 }
 
+async function getOrderInvoicePdf(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({ message: "Invalid or missing order id." });
+    }
+
+    const order = await Order.findOne({
+      where: { id, userId },
+      attributes: [
+        "id",
+        "userId",
+        "totalAmount",
+        "subtotal",
+        "discountAmount",
+        "upiDiscountPercent",
+        "preferredPaymentMethod",
+        "orderNumberForUser",
+        "firstName",
+        "lastName",
+        "mobileNumber",
+        "emailAddress",
+        "fullAddress",
+        "townOrCity",
+        "country",
+        "state",
+        "pinCode",
+        "status",
+        "payuTxnId",
+        "payuPaymentId",
+        "paymentMode",
+        "bankRefNo",
+        "payuStatus",
+        "payuError",
+        "createdAt",
+        "updatedAt",
+      ],
+      include: [
+        {
+          model: OrderItem,
+          as: "orderItems",
+          include: [
+            {
+              model: Product,
+              as: "product",
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ message: "Order not found or does not belong to you." });
+    }
+
+    const plainOrder =
+      typeof order.toJSON === "function" ? order.toJSON() : order;
+    const pdfBuffer = await createInvoicePdf(plainOrder, plainOrder.orderItems);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="invoice-${plainOrder.id}.pdf"`
+    );
+    return res.send(pdfBuffer);
+  } catch (error) {
+    console.error("Error generating invoice PDF:", error);
+    return res.status(500).json({
+      message: "Failed to generate invoice PDF.",
+      error: error.message,
+    });
+  }
+}
+
+// Get shipping label URL for an order (user must own the order). Used when order has AWB but no stored label URL.
+async function getOrderShippingLabel(req, res) {
+  const userId = req.user?.userId;
+  const { id } = req.params;
+  try {
+    if (!id) {
+      return res.status(400).json({ message: "Invalid or missing order ID." });
+    }
+    const order = await Order.findOne({
+      where: { id, userId },
+      attributes: ["id", "awbCode", "shippingLabelUrl"],
+    });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+    if (!order.awbCode) {
+      return res.status(400).json({ message: "No shipment AWB for this order." });
+    }
+    // Prefer stored URL if it looks valid (has token or is from Delhivery)
+    const stored = order.shippingLabelUrl;
+    if (stored && (stored.includes("token=") || stored.includes("packing_slip"))) {
+      return res.status(200).json({ labelUrl: stored });
+    }
+    if (!getDelhiveryConfig().isConfigured) {
+      return res.status(503).json({ message: "Shipping label service not configured." });
+    }
+    const result = await delhiveryGetLabel(order.awbCode);
+    if (!result.success) {
+      return res.status(502).json({ message: result.error || "Failed to get label URL." });
+    }
+    return res.status(200).json({ labelUrl: result.labelUrl });
+  } catch (err) {
+    console.error("getOrderShippingLabel error:", err.message);
+    res.status(500).json({ message: "Failed to get shipping label.", error: err.message });
+  }
+}
+
 module.exports = {
   createOrder,
   getMyOrders,
   getOrderById,
   cancelOrder,
   trackOrderStatus,
+  getOrderInvoicePdf,
+  getOrderShippingLabel,
 };

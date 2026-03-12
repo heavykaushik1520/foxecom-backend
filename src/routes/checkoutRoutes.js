@@ -8,7 +8,7 @@ const {
   getPaymentMethods
 } = require('../controllers/checkoutController');
 
-// Checkout flow routes
+// Checkout flow routes (GET summary supports ?preferredPaymentMethod=UPI|OTHER)
 router.get('/checkout/summary', isUser, getCheckoutSummary);
 router.post('/checkout/validate-address', isUser, validateShippingAddress);
 router.get('/checkout/payment-methods', isUser, getPaymentMethods);
