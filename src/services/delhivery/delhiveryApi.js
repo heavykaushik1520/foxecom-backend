@@ -3,16 +3,15 @@
  * Production-ready: retries, logging, graceful failure.
  * All Delhivery calls stay in backend only.
  */
-const { getDelhiveryConfig } = require('./config');
-const { delhiveryRequest } = require('./request');
+const { getDelhiveryConfig } = require("./config");
+const { delhiveryRequest } = require("./request");
 
-const LOG_PREFIX = '[Delhivery]';
+const LOG_PREFIX = "[Delhivery]";
 
-const backendUrl = process.env.BACKEND_PUBLIC_URL;
 
 function log(level, msg, meta = {}) {
   const payload = { message: msg, ...meta };
-  if (level === 'error') console.error(LOG_PREFIX, payload);
+  if (level === "error") console.error(LOG_PREFIX, payload);
   else console.log(LOG_PREFIX, payload);
 }
 
@@ -33,13 +32,14 @@ function authHeaders() {
  *  - "Delivered"       -> "delivered"
  */
 function mapDelhiveryStatus(status) {
-  if (!status || typeof status !== 'string') return null;
+  if (!status || typeof status !== "string") return null;
   const s = status.trim().toLowerCase();
-  if (s === 'manifested') return 'manifested';
-  if (s === 'picked up' || s === 'pickup' || s === 'pickedup') return 'picked_up';
-  if (s === 'in transit' || s === 'transit') return 'in_transit';
-  if (s === 'out for delivery' || s === 'ofd') return 'out_for_delivery';
-  if (s === 'delivered') return 'delivered';
+  if (s === "manifested") return "manifested";
+  if (s === "picked up" || s === "pickup" || s === "pickedup")
+    return "picked_up";
+  if (s === "in transit" || s === "transit") return "in_transit";
+  if (s === "out for delivery" || s === "ofd") return "out_for_delivery";
+  if (s === "delivered") return "delivered";
   return null;
 }
 
@@ -52,26 +52,41 @@ function mapDelhiveryStatus(status) {
 async function bulkWaybill(count = 1) {
   const { baseUrl, client, apiKey, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    log('error', 'Delhivery not configured');
-    return { success: false, error: 'Delhivery not configured' };
+    log("error", "Delhivery not configured");
+    return { success: false, error: "Delhivery not configured" };
   }
   if (!client) {
-    log('error', 'Delhivery client not set (DELHIVERY_CLIENT or DELHIVERY_WAREHOUSE_CODE)');
-    return { success: false, error: 'Client name required for bulk waybill' };
+    log(
+      "error",
+      "Delhivery client not set (DELHIVERY_CLIENT or DELHIVERY_WAREHOUSE_CODE)",
+    );
+    return { success: false, error: "Client name required for bulk waybill" };
   }
 
   const cnt = Math.min(Math.max(1, count), 10000);
   const url = `${baseUrl}/waybill/api/bulk/json/?cl=${encodeURIComponent(client)}&token=${encodeURIComponent(apiKey)}&count=${cnt}`;
-  const res = await delhiveryRequest(url, { method: 'GET', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "GET",
+    headers: authHeaders(),
+  });
 
   if (!res.ok) {
-    log('error', 'Bulk waybill failed', { status: res.status, error: res.error });
-    return { success: false, error: res.error || 'Bulk waybill failed' };
+    log("error", "Bulk waybill failed", {
+      status: res.status,
+      error: res.error,
+    });
+    return { success: false, error: res.error || "Bulk waybill failed" };
   }
 
-  const waybills = Array.isArray(res.data) ? res.data : (res.data && res.data.waybills) ? res.data.waybills : [];
-  const list = waybills.map((w) => (typeof w === 'string' ? w : w.waybill || w)).filter(Boolean);
-  log('info', 'Bulk waybill success', { count: list.length });
+  const waybills = Array.isArray(res.data)
+    ? res.data
+    : res.data && res.data.waybills
+      ? res.data.waybills
+      : [];
+  const list = waybills
+    .map((w) => (typeof w === "string" ? w : w.waybill || w))
+    .filter(Boolean);
+  log("info", "Bulk waybill success", { count: list.length });
   return { success: true, waybills: list };
 }
 
@@ -84,22 +99,45 @@ async function bulkWaybill(count = 1) {
 async function pincodeServiceability(pincode, options = {}) {
   const { baseUrl, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
-  const pin = String(pincode).replace(/\D/g, '').slice(0, 6);
+  const pin = String(pincode).replace(/\D/g, "").slice(0, 6);
   if (pin.length !== 6) {
-    return { success: false, error: 'Invalid pincode' };
+    return { success: false, error: "Invalid pincode" };
   }
 
   const url = `${baseUrl}/c/api/pin-codes/json/?filter_codes=${pin}`;
-  const res = await delhiveryRequest(url, { method: 'GET', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+
+  log("info", "Pincode serviceability raw response", {
+    pin,
+    paymentMode: options.paymentMode,
+    ok: res.ok,
+    status: res.status,
+    data: res.data,
+    error: res.error,
+  });
 
   if (!res.ok) {
-    return { success: false, error: res.error || 'Pincode check failed' };
+    return { success: false, error: res.error || "Pincode check failed" };
   }
 
-  const deliveryCodes = res.data?.delivery_codes;
+  const data =
+    typeof res.data === "string"
+      ? (() => {
+          try {
+            return JSON.parse(res.data);
+          } catch {
+            return null;
+          }
+        })()
+      : res.data;
+
+  const deliveryCodes = data?.delivery_codes;
 
   if (!Array.isArray(deliveryCodes) || deliveryCodes.length === 0) {
     return { success: true, serviceable: false, prepaid: false, cod: false };
@@ -110,20 +148,17 @@ async function pincodeServiceability(pincode, options = {}) {
     return { success: true, serviceable: false, prepaid: false, cod: false };
   }
 
-  const prepaid = postal.pre_paid === 'Y';
-  const cod = postal.cod === 'Y';
+  const prepaid = String(postal.pre_paid || "").toUpperCase() === "Y";
+  const cod = String(postal.cod || "").toUpperCase() === "Y";
 
-  // Default behaviour (no payment mode provided): serviceable if either prepaid or COD is allowed.
   let serviceable = prepaid || cod;
 
-  // When payment mode is known, enforce stricter rules:
-  const pm = (options.paymentMode || '').toUpperCase();
-  if (pm === 'COD') {
-    // COD orders must be COD-serviceable.
-    serviceable = !!cod;
-  } else if (pm) {
-    // Non-COD (prepaid) orders must be prepaid-serviceable.
-    serviceable = !!prepaid;
+  const pm = String(options.paymentMode || "").toUpperCase();
+
+  if (pm === "COD") {
+    serviceable = cod;
+  } else if (pm === "PREPAID") {
+    serviceable = prepaid;
   }
 
   return {
@@ -133,7 +168,6 @@ async function pincodeServiceability(pincode, options = {}) {
     cod,
   };
 }
-
 /**
  * TAT (Turn Around Time) API – estimated delivery days.
  * Uses Delhivery expected_tat: origin_pin, destination_pin, mot=S, pdt=B2C, expected_pickup_date.
@@ -143,37 +177,53 @@ async function pincodeServiceability(pincode, options = {}) {
  * @returns {Promise<{ success: boolean, tatDays?: number, error?: string }>}
  */
 async function getTAT(originPin, destPin, weightGm = 500) {
-  const { baseUrl, originPin: configOrigin, isConfigured } = getDelhiveryConfig();
+  const {
+    baseUrl,
+    originPin: configOrigin,
+    isConfigured,
+  } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
-  const o = String(originPin || configOrigin || '').replace(/\D/g, '').slice(0, 6);
-  const d = String(destPin).replace(/\D/g, '').slice(0, 6);
+  const o = String(originPin || configOrigin || "")
+    .replace(/\D/g, "")
+    .slice(0, 6);
+  const d = String(destPin).replace(/\D/g, "").slice(0, 6);
   if (d.length !== 6) {
-    return { success: false, error: 'Invalid destination pincode' };
+    return { success: false, error: "Invalid destination pincode" };
   }
-  const origin = o.length === 6 ? o : (configOrigin || '400001').replace(/\D/g, '').slice(0, 6);
+  const origin =
+    o.length === 6
+      ? o
+      : (configOrigin || "400001").replace(/\D/g, "").slice(0, 6);
 
   const expectedPickupDate = new Date();
   expectedPickupDate.setDate(expectedPickupDate.getDate() + 1);
   const dateStr = expectedPickupDate.toISOString().slice(0, 10);
 
   const url = `${baseUrl}/api/dc/expected_tat?origin_pin=${origin}&destination_pin=${d}&mot=S&pdt=B2C&expected_pickup_date=${dateStr}`;
-  const res = await delhiveryRequest(url, { method: 'GET', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "GET",
+    headers: authHeaders(),
+  });
 
   if (!res.ok) {
-    return { success: false, error: res.error || 'TAT check failed' };
+    return { success: false, error: res.error || "TAT check failed" };
   }
 
   const data = res.data;
-  if (data == null || typeof data !== 'object') {
+  if (data == null || typeof data !== "object") {
     return { success: true, tatDays: 5 };
   }
-  const days = data.expected_tat_days ?? data.tat_days ?? data.tat ?? data.delivery_days;
+  const days =
+    data.expected_tat_days ?? data.tat_days ?? data.tat ?? data.delivery_days;
   if (days != null) {
     const num = Number(days);
-    return { success: true, tatDays: Number.isFinite(num) ? Math.max(1, Math.round(num)) : 5 };
+    return {
+      success: true,
+      tatDays: Number.isFinite(num) ? Math.max(1, Math.round(num)) : 5,
+    };
   }
   return { success: true, tatDays: 5 };
 }
@@ -186,19 +236,19 @@ async function getTAT(originPin, destPin, weightGm = 500) {
 async function createWarehouse(payload) {
   const { baseUrl, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
   const url = `${baseUrl}/api/backend/clientwarehouse/create/`;
   const res = await delhiveryRequest(url, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
-    log('error', 'Warehouse creation failed', { error: res.error });
-    return { success: false, error: res.error || 'Warehouse creation failed' };
+    log("error", "Warehouse creation failed", { error: res.error });
+    return { success: false, error: res.error || "Warehouse creation failed" };
   }
 
   return { success: true, data: res.data };
@@ -210,22 +260,42 @@ async function createWarehouse(payload) {
  * pickup_location is sent at root level in create payload, not inside each shipment.
  */
 function buildShipmentPayload(order, waybill = null, options = {}) {
-  const { client, pickupLocation, warehouseCode } = getDelhiveryConfig();
-  const pickup = options.pickupLocation || pickupLocation || warehouseCode;
-  const paymentMode = (options.paymentMode || 'Pre-paid').toLowerCase().includes('cod') ? 'COD' : 'Prepaid';
-  const codAmount = paymentMode === 'COD' ? parseFloat(order.totalAmount || 0) : 0;
+  const paymentMode = options.paymentMode === "COD" ? "COD" : "Prepaid";
 
-  const name = [order.firstName, order.lastName].filter(Boolean).join(' ').trim().slice(0, 100) || 'Customer';
-  const add = [order.fullAddress, order.townOrCity, order.state].filter(Boolean).join(', ').slice(0, 500);
-  const pin = String(order.pinCode || '').replace(/\D/g, '').slice(0, 6);
-  let phone = String(order.mobileNumber || '').replace(/\D/g, '');
+  const orderTotal = Number(order.totalAmount || 0);
+  const codAmount = paymentMode === "COD" ? orderTotal : 0;
+
+  const name =
+    [order.firstName, order.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+      .slice(0, 100) || "Customer";
+
+  const add = [
+    order.flatNumber,
+    order.buildingName,
+    order.fullAddress,
+    order.townOrCity,
+    order.state,
+  ]
+    .filter(Boolean)
+    .join(", ")
+    .slice(0, 500);
+
+  const pin = String(order.pinCode || "")
+    .replace(/\D/g, "")
+    .slice(0, 6);
+
+  let phone = String(order.mobileNumber || "").replace(/\D/g, "");
   if (phone.length > 10) phone = phone.slice(-10);
 
-  const city = String(order.townOrCity || '').slice(0, 100) || '';
-  const state = String(order.state || '').slice(0, 100) || '';
-  const country = String(order.country || 'India').slice(0, 100);
+  const city = String(order.townOrCity || "").slice(0, 100);
+  const state = String(order.state || "").slice(0, 100);
+  const country = String(order.country || "India").slice(0, 100);
 
-  const weightGm = options.weightGm || 500;
+  const weightGm = Number(options.weightGm || 500);
+
   const shipment = {
     name,
     add,
@@ -234,33 +304,37 @@ function buildShipmentPayload(order, waybill = null, options = {}) {
     state,
     country,
     phone,
+
     order: String(options.orderId != null ? options.orderId : order.id),
     payment_mode: paymentMode,
-    return_pin: '',
-    return_city: '',
-    return_phone: '',
-    return_add: '',
-    return_state: '',
-    return_country: '',
-    products_desc: options.productsDesc || '',
-    hsn_code: String(options.hsnCode || '998399'),
-    cod_amount: codAmount > 0 ? codAmount.toFixed(2) : '',
-    order_date: null,
-    total_amount: codAmount > 0 ? String(codAmount) : '',
-    seller_add: options.sellerAdd || '',
-    seller_name: options.sellerName || '',
-    seller_inv: options.sellerInv || '',
-    quantity: options.quantity || '1',
-    waybill: waybill || '',
+
+    products_desc: options.productsDesc || "General merchandise",
+    hsn_code: String(options.hsnCode || "998399"),
+
+    cod_amount: paymentMode === "COD" ? codAmount.toFixed(2) : "0",
+    total_amount: orderTotal.toFixed(2),
+
+    order_date: new Date().toISOString().slice(0, 10),
+
+    seller_name: options.sellerName || process.env.SELLER_NAME || "",
+    seller_add: options.sellerAdd || process.env.SELLER_ADDRESS || "",
+    seller_gst_tin: options.sellerGstTin || process.env.SELLER_GSTIN || "",
+    seller_inv: options.sellerInv || `INV-${order.id}`,
+
+    quantity: String(options.quantity || 1),
+    waybill: waybill || "",
+
+    shipment_length: String(options.shipmentLength || 10),
     shipment_width: String(options.shipmentWidth || 10),
     shipment_height: String(options.shipmentHeight || 10),
     weight: String(weightGm),
-    shipping_mode: options.shippingMode || 'Surface',
-    address_type: options.addressType || 'default',
+
+    shipping_mode: options.shippingMode || "Surface",
+    address_type: options.addressType || "home",
   };
 
-  if (waybill) shipment.waybill = waybill;
   if (options.fragile) shipment.fragile_shipment = true;
+
   return shipment;
 }
 
@@ -273,39 +347,47 @@ function buildShipmentPayload(order, waybill = null, options = {}) {
  * @returns {Promise<{ success: boolean, waybill?: string, shipmentId?: string, labelUrl?: string, error?: string }>}
  */
 async function createShipment(order, options = {}) {
-  const { baseUrl, pickupLocation, warehouseCode, isConfigured } = getDelhiveryConfig();
+  const { baseUrl, pickupLocation, warehouseCode, isConfigured } =
+    getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
   // Idempotency guard: if this order already has an AWB, do not create again.
   const existingAwb =
-    (order && (order.awbCode || order.awb || order.waybill)) || (options && (options.awb || options.waybill));
+    (order && (order.awbCode || order.awb || order.waybill)) ||
+    (options && (options.awb || options.waybill));
   if (existingAwb) {
-    const { apiKey } = getDelhiveryConfig();
     const existingShipmentId = order && (order.shipmentId || order.id);
-    const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${existingAwb}&token=${apiKey || ''}`;
-    log('info', 'Shipment already exists – skipping create', {
+
+    log("info", "Shipment already exists – skipping create", {
       orderId: order && order.id,
       awb: existingAwb,
       shipmentId: existingShipmentId,
     });
+
     return {
       success: true,
       waybill: existingAwb,
-      shipmentId: String(existingShipmentId || ''),
+      shipmentId: String(existingShipmentId || ""),
       awb: existingAwb,
-      labelUrl,
     };
   }
 
   const pickupName = options.pickupLocation || pickupLocation || warehouseCode;
+  // if (!pickupName) {
+  //   log('error', 'Pickup location / warehouse name required for create');
+  //   return { success: false, error: 'Pickup location not configured' };
+  // }
   if (!pickupName) {
-    log('error', 'Pickup location / warehouse name required for create');
-    return { success: false, error: 'Pickup location not configured' };
+    return { success: false, error: "DELHIVERY_PICKUP_LOCATION missing" };
   }
 
-  const shipment = buildShipmentPayload(order, options.waybill || null, options);
+  const shipment = buildShipmentPayload(
+    order,
+    options.waybill || null,
+    options,
+  );
   const payload = {
     shipments: [shipment],
     pickup_location: { name: pickupName },
@@ -314,39 +396,87 @@ async function createShipment(order, options = {}) {
   const body = `format=json&data=${encodeURIComponent(JSON.stringify(payload))}`;
   const url = `${baseUrl}/api/cmu/create.json`;
   const res = await delhiveryRequest(url, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: "POST",
+    headers: {
+      ...authHeaders(),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
     body,
   });
 
   if (!res.ok) {
-    log('error', 'Shipment creation failed', { orderId: order.id, error: res.error, data: res.data });
-    return { success: false, error: res.error || 'Shipment creation failed' };
+    log("error", "Shipment creation failed", {
+      orderId: order.id,
+      error: res.error,
+      data: res.data,
+    });
+    return { success: false, error: res.error || "Shipment creation failed" };
   }
 
   const out = res.data;
-  if (out && (out.success === false || (out.rmks && out.rmks.toLowerCase().includes('fail')))) {
-    const errMsg = out.rmks || out.error || out.message || 'Shipment creation rejected';
-    log('error', 'Shipment create rejected', { orderId: order.id, rmks: out.rmks });
-    return { success: false, error: errMsg };
+  if (
+    out &&
+    (out.success === false ||
+      (out.rmks && out.rmks.toLowerCase().includes("fail")))
+  ) {
+    // Delhivery often puts validation details in nested packages/remarks.
+    const packagesArr =
+      out.packages ||
+      out.package ||
+      out.shipment ||
+      (Array.isArray(out.data?.packages) ? out.data.packages : null);
+    const firstPkg = Array.isArray(packagesArr) ? packagesArr[0] : packagesArr;
+    const pkgRmks =
+      firstPkg?.remarks ||
+      firstPkg?.rmks ||
+      firstPkg?.remark ||
+      (typeof firstPkg === "string" ? firstPkg : null);
+
+    const topRmks = out.rmks || out.remarks || out.message;
+    const rawError = out.error;
+
+    const errMsg =
+      pkgRmks ||
+      topRmks ||
+      (typeof rawError === "string" ? rawError : null) ||
+      "Shipment creation rejected";
+
+    log("error", "Shipment create rejected", {
+      orderId: order.id,
+      rmks: out.rmks,
+      packageRemarks: pkgRmks,
+      raw: out,
+    });
+    return { success: false, error: String(errMsg) };
   }
 
-  const packages = out && (out.packages || out.package || (Array.isArray(out) ? out : [out]));
-  const first = Array.isArray(packages) ? packages[0] : packages;
-  const waybill = first && (first.waybill || first.awb || first.wb);
-  const refId = first && (first.reference_id || first.ref_id || first.order);
-  const { apiKey } = getDelhiveryConfig();
-  const labelUrl = waybill
-    ? `${baseUrl}/api/p/packing_slip?wbns=${waybill}&token=${apiKey || ''}`
-    : null;
+  const packages =
+    out?.packages ||
+    out?.package ||
+    out?.shipment ||
+    out?.data?.packages ||
+    (Array.isArray(out) ? out : [out]);
 
-  log('info', 'Shipment created', { orderId: order.id, waybill, refId });
+  const first = Array.isArray(packages) ? packages[0] : packages;
+
+  const waybill =
+    first?.waybill ||
+    first?.awb ||
+    first?.wb ||
+    out?.waybill ||
+    out?.awb ||
+    out?.packages?.[0]?.waybill ||
+    null;
+
+  const refId = first && (first.reference_id || first.ref_id || first.order);
+
+  log("info", "Shipment created", { orderId: order.id, waybill, refId });
+
   return {
     success: true,
     waybill: waybill || null,
     shipmentId: refId || String(order.id),
     awb: waybill || null,
-    labelUrl,
   };
 }
 
@@ -360,16 +490,19 @@ async function createShipment(order, options = {}) {
 async function updateShipment(waybill, updates) {
   const { baseUrl, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
   const params = new URLSearchParams({ waybill, ...updates });
   const url = `${baseUrl}/api/p/edit?${params.toString()}`;
-  const res = await delhiveryRequest(url, { method: 'POST', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "POST",
+    headers: authHeaders(),
+  });
 
   if (!res.ok) {
-    log('error', 'Shipment update failed', { waybill, error: res.error });
-    return { success: false, error: res.error || 'Shipment update failed' };
+    log("error", "Shipment update failed", { waybill, error: res.error });
+    return { success: false, error: res.error || "Shipment update failed" };
   }
 
   return { success: true };
@@ -383,16 +516,22 @@ async function updateShipment(waybill, updates) {
 async function cancelShipment(waybill) {
   const { baseUrl, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
-  const params = new URLSearchParams({ waybill, cancellation: 'true' });
+  const params = new URLSearchParams({ waybill, cancellation: "true" });
   const url = `${baseUrl}/api/p/edit?${params.toString()}`;
-  const res = await delhiveryRequest(url, { method: 'POST', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "POST",
+    headers: authHeaders(),
+  });
 
   if (!res.ok) {
-    log('error', 'Shipment cancellation failed', { waybill, error: res.error });
-    return { success: false, error: res.error || 'Shipment cancellation failed' };
+    log("error", "Shipment cancellation failed", { waybill, error: res.error });
+    return {
+      success: false,
+      error: res.error || "Shipment cancellation failed",
+    };
   }
 
   return { success: true };
@@ -407,17 +546,20 @@ async function cancelShipment(waybill) {
 async function getLabel(waybill) {
   const { baseUrl, apiKey, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
-  const labelUrl = `${baseUrl}/api/p/packing_slip?wbns=${waybill}&token=${apiKey}`;
-  const res = await delhiveryRequest(labelUrl, { method: 'GET' });
+  const safeWaybill = encodeURIComponent(String(waybill || "").trim());
+  const safeToken = encodeURIComponent(String(apiKey || "").trim());
+
+  const url = `${baseUrl}/api/p/packing_slip?wbns=${safeWaybill}&token=${safeToken}`;
+  const res = await delhiveryRequest(url, { method: "GET" });
 
   if (!res.ok) {
-    return { success: false, error: res.error || 'Label fetch failed' };
+    return { success: false, error: res.error || "Label fetch failed" };
   }
 
-  return { success: true, labelUrl, labelData: res.data };
+  return { success: true, labelData: res.data };
 }
 
 /**
@@ -428,24 +570,27 @@ async function getLabel(waybill) {
 async function trackShipment(waybill) {
   const { baseUrl, isConfigured } = getDelhiveryConfig();
   if (!isConfigured) {
-    return { success: false, error: 'Delhivery not configured' };
+    return { success: false, error: "Delhivery not configured" };
   }
 
   const url = `${baseUrl}/api/v1/packages/json/?waybill=${encodeURIComponent(waybill)}`;
-  const res = await delhiveryRequest(url, { method: 'GET', headers: authHeaders() });
+  const res = await delhiveryRequest(url, {
+    method: "GET",
+    headers: authHeaders(),
+  });
 
   if (!res.ok) {
-    return { success: false, error: res.error || 'Tracking failed' };
+    return { success: false, error: res.error || "Tracking failed" };
   }
 
   const shipmentData = res.data?.ShipmentData;
   if (!Array.isArray(shipmentData) || shipmentData.length === 0) {
-    return { success: false, error: 'No shipment data found' };
+    return { success: false, error: "No shipment data found" };
   }
 
   const shipment = shipmentData[0]?.Shipment;
   if (!shipment) {
-    return { success: false, error: 'Invalid shipment structure' };
+    return { success: false, error: "Invalid shipment structure" };
   }
 
   const scans = shipment.Scans?.map((s) => s.ScanDetail) || [];

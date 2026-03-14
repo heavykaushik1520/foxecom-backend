@@ -1,5 +1,6 @@
 const PDFDocument = require("pdfkit");
 const path = require("path");
+const { getOrderDisplayId } = require("./orderNumberHelper");
 
 const generateInvoiceBuffer = (order, orderItems) => {
   return new Promise((resolve, reject) => {
@@ -27,8 +28,8 @@ const generateInvoiceBuffer = (order, orderItems) => {
     doc.fontSize(12).font("Helvetica");
 
     let currentY = doc.y;
-    doc.text(`Order ID:`, detailLeftX, currentY);
-    doc.font("Helvetica").text(`${order.id}`, detailLeftX + 80, currentY); 
+    doc.font("Helvetica-Bold").text(`Order Number:`, detailLeftX, currentY);
+    doc.font("Helvetica-Bold").text(getOrderDisplayId(order) || String(order.id), detailLeftX + 120, currentY); 
 
     currentY = doc.y;
     doc.font("Helvetica-Bold").text(`Customer:`, detailLeftX, currentY);
@@ -45,8 +46,17 @@ const generateInvoiceBuffer = (order, orderItems) => {
     currentY = doc.y;
     doc.font("Helvetica-Bold").text(`Address:`, detailLeftX, currentY);
 
+    const addressParts = [];
+    if (order.flatNumber) {
+      addressParts.push(`Flat: ${order.flatNumber}`);
+    }
+    if (order.buildingName) {
+      addressParts.push(order.buildingName);
+    }
+    addressParts.push(`${order.fullAddress}, ${order.townOrCity}, ${order.state} - ${order.pinCode}, ${order.country}`);
+
     doc.font("Helvetica").text(
-        `${order.fullAddress}, ${order.townOrCity}, ${order.state} - ${order.pinCode}, ${order.country}`,
+        addressParts.join(", "),
         detailLeftX + 80, currentY, { width: doc.page.width - detailLeftX - 80 - 50, align: "left" }
     );
     doc.moveDown(2); 

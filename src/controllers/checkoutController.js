@@ -154,6 +154,8 @@ async function validateShippingAddress(req, res) {
       mobileNumber,
       emailAddress,
       fullAddress,
+      flatNumber,
+      buildingName,
       townOrCity,
       country,
       state,
@@ -168,6 +170,12 @@ async function validateShippingAddress(req, res) {
     }
     if (!lastName || typeof lastName !== "string" || !lastName.trim()) {
       validationErrors.push("Last Name is required and must be a non-empty string.");
+    }
+    if (!buildingName || typeof buildingName !== "string" || !buildingName.trim()) {
+      validationErrors.push("Building / House Name is required and must be a non-empty string.");
+    }
+    if (flatNumber && (typeof flatNumber !== "string" || !flatNumber.trim())) {
+      validationErrors.push("Flat / Apartment No, if provided, must be a non-empty string.");
     }
     if (!mobileNumber || !/^\d{10}$/.test(String(mobileNumber))) {
       validationErrors.push("Mobile Number is required and must be exactly 10 digits.");
@@ -227,6 +235,8 @@ async function validateShippingAddress(req, res) {
         lastName: lastName.trim(),
         mobileNumber: parseInt(mobileNumber),
         emailAddress: emailAddress.trim(),
+        flatNumber: flatNumber ? flatNumber.trim() : null,
+        buildingName: buildingName.trim(),
         fullAddress: fullAddress.trim(),
         townOrCity: townOrCity.trim(),
         country: country.trim(),

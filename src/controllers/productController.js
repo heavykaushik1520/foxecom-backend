@@ -57,7 +57,7 @@ async function createProduct(req, res) {
             return res.status(409).json({ message: "Product with this name already exists in this category." });
         }
 
-        if (!galleryFiles || galleryFiles.length < 2 || galleryFiles.length > 11) {
+        if (!galleryFiles || galleryFiles.length < 2 || galleryFiles.length > 10) {
             return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
         }
 
@@ -179,17 +179,40 @@ async function updateProduct(req, res) {
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
-        const { imagesToDelete, categoryId, caption, ...productData } = req.body;
+        let { imagesToDelete, categoryId, caption, ...productData } = req.body;
+
+        // Parse imagesToDelete when sent as JSON string (FormData sends all fields as strings)
+        if (typeof imagesToDelete === 'string') {
+            try {
+                imagesToDelete = JSON.parse(imagesToDelete);
+            } catch (e) {
+                imagesToDelete = [];
+            }
+        }
+        if (!Array.isArray(imagesToDelete)) {
+            imagesToDelete = [];
+        }
+        // Ensure IDs are integers for DB
+        imagesToDelete = imagesToDelete.filter((id) => Number.isInteger(Number(id))).map((id) => Number(id));
 
         const thumbnailFile = req.files?.['thumbnailImage']?.[0];
         const galleryFiles = req.files?.['images'];
 
-
-
-
         try {
-            if (productData.price && productData.price < 0) {
+            if (productData.price != null && parseFloat(productData.price) < 0) {
                 return res.status(400).json({ message: "Price cannot be negative." });
+            }
+
+            // Validate gallery image count upfront (2–10) before making changes
+            const currentImageCount = await ProductImage.count({ where: { productId: id } });
+            const remainingAfterDelete = currentImageCount - imagesToDelete.length;
+            const newFileCount = Array.isArray(galleryFiles) ? galleryFiles.length : 0;
+            const finalCount = remainingAfterDelete + newFileCount;
+            if (finalCount < 2 || finalCount > 10) {
+                return res.status(400).json({
+                    message: "Product must have between 2 and 10 gallery images after update. " +
+                        `Current: ${currentImageCount}, removing: ${imagesToDelete.length}, adding: ${newFileCount} → total would be ${finalCount}.`
+                });
             }
 
             const updatePayload = { ...productData };
@@ -210,7 +233,7 @@ async function updateProduct(req, res) {
                 return res.status(404).json({ message: "Product not found" });
             }
 
-            // Enforce images between 2 and 5 after applying deletions/additions
+            // Add new gallery images first
             if (galleryFiles && galleryFiles.length > 0) {
                 // Remove duplicate filenames to prevent duplicate image URLs
                 const uniqueFiles = [];
@@ -263,9 +286,9 @@ async function updateProduct(req, res) {
                     },
                 });
             }
-            // Count final images and validate
+            // Count final images and validate (safety check)
             const finalImageCount = await ProductImage.count({ where: { productId: id } });
-            if (finalImageCount < 2 || finalImageCount > 11) {
+            if (finalImageCount < 2 || finalImageCount > 10) {
                 return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
             }
             const updatedProduct = await Product.findByPk(id, {

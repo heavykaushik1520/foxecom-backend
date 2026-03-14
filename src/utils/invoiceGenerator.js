@@ -1,4 +1,5 @@
 const PDFDocument = require("pdfkit");
+const { getOrderDisplayId } = require("./orderNumberHelper");
 
 const GST_RATE = 0.18;
 
@@ -83,11 +84,13 @@ function buildInvoiceMeta(order, orderItems = []) {
     shippedBy: SHIPPED_BY_TEXT,
     invoiceDate: order?.createdAt ? new Date(order.createdAt) : new Date(),
     deliveryDate: null,
-    orderNumber: order?.id ? `#${order.id}` : "",
+    orderNumber: order ? `#${getOrderDisplayId(order)}` : "",
     foxecomIp: firstLine?.sku || "",
     awb: order?.awbCode || "",
     customerName: `${order?.firstName || ""} ${order?.lastName || ""}`.trim(),
     customerAddress: {
+      flatNumber: order?.flatNumber || "",
+      buildingName: order?.buildingName || "",
       fullAddress: order?.fullAddress || "",
       townOrCity: order?.townOrCity || "",
       state: order?.state || "",
@@ -121,7 +124,9 @@ function createInvoicePdf(order, orderItems = []) {
       doc.fontSize(16).font("Helvetica-Bold").text("CUSTOMER INVOICE", {
         align: "left",
       });
-
+      doc.moveDown(0.3);
+      doc.fontSize(11).font("Helvetica-Bold").text("Order Number: ", { continued: true });
+      doc.font("Helvetica").text(invoice.orderNumber || "-");
       doc.moveDown(0.5);
       doc
         .fontSize(9)
@@ -160,8 +165,8 @@ function createInvoicePdf(order, orderItems = []) {
 
       doc
         .font("Helvetica-Bold")
-        .text("Order No:", rightX, doc.y - 8);
-      doc.font("Helvetica").text(invoice.orderNumber, rightX + 70, doc.y - 12);
+        .text("Order Number:", rightX, doc.y - 8);
+      doc.font("Helvetica-Bold").text(invoice.orderNumber, rightX + 100, doc.y - 12);
 
       doc
         .font("Helvetica-Bold")
@@ -181,6 +186,12 @@ function createInvoicePdf(order, orderItems = []) {
         .text("Bill To:", leftX, doc.y);
       doc.font("Helvetica");
       doc.text(invoice.customerName || "Customer");
+      if (invoice.customerAddress.flatNumber) {
+        doc.text(`Flat: ${invoice.customerAddress.flatNumber}`);
+      }
+      if (invoice.customerAddress.buildingName) {
+        doc.text(invoice.customerAddress.buildingName);
+      }
       doc.text(invoice.customerAddress.fullAddress);
       doc.text(
         `${invoice.customerAddress.townOrCity}, ${invoice.customerAddress.state} - ${invoice.customerAddress.pinCode}`

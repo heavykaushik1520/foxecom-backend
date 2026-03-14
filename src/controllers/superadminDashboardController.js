@@ -125,7 +125,7 @@ async function getDashboard(req, res) {
 
     const orderListAttributes = [
       "id", "userId", "totalAmount", "firstName", "lastName", "mobileNumber",
-      "emailAddress", "fullAddress", "townOrCity", "country", "state", "pinCode",
+      "emailAddress", "flatNumber", "buildingName", "fullAddress", "townOrCity", "country", "state", "pinCode",
       "status", "payuTxnId", "payuPaymentId", "paymentMode", "bankRefNo", "payuStatus",
       "shiprocketOrderId", "shipmentId", "awbCode", "courierName", "shipmentStatus", "shippingLabelUrl",
       "createdAt", "updatedAt",

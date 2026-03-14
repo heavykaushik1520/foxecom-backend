@@ -13,9 +13,9 @@ async function getAllOrdersForAdmin(req, res) {
       limit,
       offset,
       attributes: [
-        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser', 'orderNumber',
         'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
@@ -60,9 +60,9 @@ async function getOrderById(req, res) {
     const order = await Order.findOne({
       where: { id },
       attributes: [
-        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser', 'orderNumber',
         'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
@@ -128,9 +128,9 @@ async function updateOrderStatus(req, res) {
     // Fetch updated order with associations
     const updatedOrder = await Order.findByPk(id, {
       attributes: [
-        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser',
+        'id', 'userId', 'totalAmount', 'subtotal', 'discountAmount', 'upiDiscountPercent', 'preferredPaymentMethod', 'orderNumberForUser', 'orderNumber',
         'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+          'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'shiprocketOrderId', 'shipmentId', 'awbCode', 'courierName', 'shipmentStatus', 'shippingLabelUrl',
@@ -235,6 +235,7 @@ async function getOrdersWithFilters(req, res) {
       filteredOrders = orders.filter(order => 
         order.user?.email?.toLowerCase().includes(searchLower) ||
         order.id.toString().includes(search) ||
+        (order.orderNumber && order.orderNumber.toLowerCase().includes(searchLower)) ||
         order.payuTxnId?.toLowerCase().includes(searchLower)
       );
     }

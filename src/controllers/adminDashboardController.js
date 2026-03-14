@@ -49,7 +49,7 @@ async function getDashboardStats(req, res) {
       order: [['createdAt', 'DESC']],
       attributes: [
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
@@ -263,7 +263,7 @@ async function getUserProfile(req, res) {
       order: [['createdAt', 'DESC']],
       attributes: [
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'
@@ -301,7 +301,7 @@ async function getUserOrders(req, res) {
       order: [['createdAt', 'DESC']],
       attributes: [
         'id', 'userId', 'totalAmount', 'firstName', 'lastName', 
-        'mobileNumber', 'emailAddress', 'fullAddress', 'townOrCity', 
+        'mobileNumber', 'emailAddress', 'flatNumber', 'buildingName', 'fullAddress', 'townOrCity', 
         'country', 'state', 'pinCode', 'status', 
         'payuTxnId', 'payuPaymentId', 'paymentMode', 'bankRefNo', 'payuStatus', 'payuError', 
         'createdAt', 'updatedAt'

@@ -1,6 +1,7 @@
 // src/utils/sendOrderEmails.js
 const nodemailer = require("nodemailer");
 const { createInvoicePdf } = require("./invoiceGenerator");
+const { getOrderDisplayId } = require("./orderNumberHelper");
 
 // Create reusable transporter
 const createTransporter = () => {
@@ -99,8 +100,8 @@ const getCustomerEmailHTML = (order, orderItems) => {
                     <table role="presentation" style="width: 100%;">
                       <tr>
                         <td style="padding: 5px 0;">
-                          <span style="color: #666; font-size: 14px;">Order Number:</span>
-                          <strong style="color: #333; font-size: 14px; float: right;">#${order.id}</strong>
+                          <span style="color: #666; font-size: 14px;">Order Number (reference):</span>
+                          <strong style="color: #2c3e50; font-size: 15px; float: right;">#${getOrderDisplayId(order)}</strong>
                         </td>
                       </tr>
                       <tr>
@@ -153,6 +154,8 @@ const getCustomerEmailHTML = (order, orderItems) => {
                       ${order.firstName} ${order.lastName}
                     </p>
                     <p style="margin: 0 0 5px; color: #555; line-height: 1.5;">
+                      ${order.flatNumber ? `Flat: ${order.flatNumber}<br>` : ''}
+                      ${order.buildingName ? `${order.buildingName}<br>` : ''}
                       ${order.fullAddress}<br>
                       ${order.townOrCity}, ${order.state} - ${order.pinCode}<br>
                       ${order.country}
@@ -225,7 +228,7 @@ const getAdminEmailHTML = (order, orderItems) => {
           <tr>
             <td style="background-color: #2c3e50; padding: 25px; text-align: center;">
               <h1 style="color: #ffffff; margin: 0; font-size: 24px;">🛒 New Order Received!</h1>
-              <p style="color: #ecf0f1; margin: 10px 0 0; font-size: 16px;">Order #${order.id} | ${formatCurrency(order.totalAmount)}</p>
+              <p style="color: #ecf0f1; margin: 10px 0 0; font-size: 16px;">Order Number: <strong>#${getOrderDisplayId(order)}</strong> | ${formatCurrency(order.totalAmount)}</p>
             </td>
           </tr>
           
@@ -242,6 +245,16 @@ const getAdminEmailHTML = (order, orderItems) => {
           <tr>
             <td style="padding: 30px;">
               
+              <!-- Order Number (primary reference) -->
+              <table role="presentation" style="width: 100%; background-color: #e8f4fd; border: 2px solid #3498db; border-radius: 6px; margin-bottom: 25px;">
+                <tr>
+                  <td style="padding: 16px 20px;">
+                    <span style="color: #2c3e50; font-size: 14px; font-weight: bold;">Order Number (use for reference):</span>
+                    <span style="color: #2c3e50; font-size: 18px; font-weight: bold; margin-left: 10px;">#${getOrderDisplayId(order)}</span>
+                  </td>
+                </tr>
+              </table>
+              
               <!-- Order & Payment Info -->
               <table role="presentation" style="width: 100%; margin-bottom: 25px;">
                 <tr>
@@ -251,8 +264,8 @@ const getAdminEmailHTML = (order, orderItems) => {
                     </h3>
                     <table role="presentation" style="width: 100%;">
                       <tr>
-                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Order ID:</td>
-                        <td style="padding: 5px 0; color: #333; font-size: 13px; font-weight: bold;">#${order.id}</td>
+                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Order Number:</td>
+                        <td style="padding: 5px 0; color: #2c3e50; font-size: 15px; font-weight: bold;">#${getOrderDisplayId(order)}</td>
                       </tr>
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Order Date:</td>
@@ -336,6 +349,8 @@ const getAdminEmailHTML = (order, orderItems) => {
                       ${order.firstName} ${order.lastName}
                     </p>
                     <p style="margin: 0; color: #555; line-height: 1.6;">
+                      ${order.flatNumber ? `Flat: ${order.flatNumber}<br>` : ''}
+                      ${order.buildingName ? `${order.buildingName}<br>` : ''}
                       ${order.fullAddress}<br>
                       ${order.townOrCity}, ${order.state}<br>
                       PIN: <strong>${order.pinCode}</strong><br>
@@ -433,9 +448,9 @@ Hi ${order.firstName},
 
 Thank you for your order! Your payment has been successfully received.
 
-ORDER DETAILS
+ORDER DETAILS (use Order Number for reference)
 -------------
-Order Number: #${order.id}
+Order Number: #${getOrderDisplayId(order)}
 Order Date: ${formatDate(order.createdAt)}
 Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
 
@@ -447,7 +462,7 @@ TOTAL: ${formatCurrency(order.totalAmount)}
 SHIPPING ADDRESS
 ----------------
 ${order.firstName} ${order.lastName}
-${order.fullAddress}
+${order.flatNumber ? `Flat: ${order.flatNumber}\n` : ''}${order.buildingName ? `${order.buildingName}\n` : ''}${order.fullAddress}
 ${order.townOrCity}, ${order.state} - ${order.pinCode}
 ${order.country}
 Phone: ${order.mobileNumber}
@@ -477,9 +492,12 @@ const getAdminEmailText = (order, orderItems) => {
   return `
 NEW ORDER RECEIVED - PAYMENT SUCCESSFUL
 
+ORDER NUMBER (use this for reference): #${getOrderDisplayId(order)}
+-------------------------------------
+
 ORDER INFORMATION
 -----------------
-Order ID: #${order.id}
+Order Number: #${getOrderDisplayId(order)}
 Order Date: ${formatDate(order.createdAt)}
 Status: PAID
 Total Items: ${totalItems}
@@ -500,7 +518,7 @@ User ID: ${order.userId}
 SHIPPING ADDRESS
 ----------------
 ${order.firstName} ${order.lastName}
-${order.fullAddress}
+${order.flatNumber ? `Flat: ${order.flatNumber}\n` : ''}${order.buildingName ? `${order.buildingName}\n` : ''}${order.fullAddress}
 ${order.townOrCity}, ${order.state}
 PIN: ${order.pinCode}
 ${order.country}
@@ -551,13 +569,13 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
     const customerMailOptions = {
       from: `"Foxecom" <${fromEmail}>`,
       to: order.emailAddress,
-      subject: `Order Confirmed! Your Order #${order.id} has been placed`,
+      subject: `Order Confirmed! Your Order #${getOrderDisplayId(order)} has been placed`,
       text: getCustomerEmailText(order, orderItems),
       html: getCustomerEmailHTML(order, orderItems),
       attachments: invoiceBuffer
         ? [
             {
-              filename: `invoice-${order.id}.pdf`,
+              filename: `invoice-${(getOrderDisplayId(order) || order.id).toString().replace(/\//g, "-")}.pdf`,
               content: invoiceBuffer,
               contentType: "application/pdf",
             },
@@ -579,13 +597,13 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
       const adminMailOptions = {
         from: `"Foxecom Orders" <${fromEmail}>`,
         to: adminRecipient,
-        subject: `🛒 New Order #${order.id} - ${formatCurrency(order.totalAmount)} - Payment Received`,
+        subject: `🛒 New Order #${getOrderDisplayId(order)} - ${formatCurrency(order.totalAmount)} - Payment Received`,
         text: getAdminEmailText(order, orderItems),
         html: getAdminEmailHTML(order, orderItems),
         attachments: invoiceBuffer
           ? [
               {
-                filename: `invoice-${order.id}.pdf`,
+                filename: `invoice-${(getOrderDisplayId(order) || order.id).toString().replace(/\//g, "-")}.pdf`,
                 content: invoiceBuffer,
                 contentType: "application/pdf",
               },
@@ -642,7 +660,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
       ? `${frontendBase.replace(/\/+$/, '')}/order/${order.id}/track`
       : null);
 
-  const subject = `Your order #${order.id} has been shipped – AWB ${awb}`;
+  const subject = `Your order #${getOrderDisplayId(order)} has been shipped – AWB ${awb}`;
 
   const html = `
 <!DOCTYPE html>
@@ -661,7 +679,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
             <td style="background:#0d6efd;padding:24px 24px 20px;text-align:left;">
               <h1 style="margin:0;font-size:22px;color:#ffffff;">Your order is on the way</h1>
               <p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,0.9);">
-                Order #${order.id} • AWB ${awb}
+                Order #${getOrderDisplayId(order)} • AWB ${awb}
               </p>
             </td>
           </tr>
@@ -678,8 +696,8 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
                 <tr>
                   <td style="padding:16px 18px;">
                     <p style="margin:0 0 6px;font-size:14px;color:#666;">
-                      <span style="color:#6c757d;">Order number:</span>
-                      <span style="float:right;color:#212529;font-weight:600;">#${order.id}</span>
+                      <span style="color:#6c757d;">Order Number:</span>
+                      <span style="float:right;color:#212529;font-weight:600;">#${getOrderDisplayId(order)}</span>
                     </p>
                     <p style="margin:0 0 6px;font-size:14px;color:#666;">
                       <span style="color:#6c757d;">AWB / Waybill:</span>
@@ -733,7 +751,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
 
   const text = `Your shipment is on the way.
 
-Order #${order.id}
+Order Number: #${getOrderDisplayId(order)}
 AWB / Waybill: ${awb}
 
 ${safeTrackUrl ? `Track your order: ${safeTrackUrl}\n\n` : ''}
