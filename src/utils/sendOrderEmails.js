@@ -1,7 +1,7 @@
 // src/utils/sendOrderEmails.js
 const nodemailer = require("nodemailer");
 const { createInvoicePdf } = require("./invoiceGenerator");
-const { getOrderDisplayId } = require("./orderNumberHelper");
+const { getOrderDisplayId, buildOrderNumber } = require("./orderNumberHelper");
 
 // Create reusable transporter
 const createTransporter = () => {
@@ -9,6 +9,7 @@ const createTransporter = () => {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT) || 587,
     secure: false, // true for 465, false for other ports
+    // requireTLS: true,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -30,6 +31,22 @@ const formatDate = (date) => {
     hour: "2-digit",
     minute: "2-digit",
   });
+};
+
+const getSafeOrderDisplayId = (order, orderItems = []) => {
+  // Prefer stored order number when available.
+  if (order?.orderNumber) return order.orderNumber;
+
+  // Otherwise, build from SKU_LAST4/DDMMYYYY/orderId using first SKU (if present).
+  if (order?.id != null && order?.createdAt) {
+    const firstSku =
+      orderItems?.[0]?.product?.sku ??
+      orderItems?.[0]?.sku ??
+      "";
+    return buildOrderNumber(order.id, order.createdAt, firstSku);
+  }
+
+  return getOrderDisplayId(order);
 };
 
 // Generate product rows HTML for email
@@ -60,6 +77,7 @@ const generateProductRowsHTML = (orderItems) => {
 const getCustomerEmailHTML = (order, orderItems) => {
   const productRows = generateProductRowsHTML(orderItems);
   const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
+  const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
 
   return `
 <!DOCTYPE html>
@@ -101,7 +119,7 @@ const getCustomerEmailHTML = (order, orderItems) => {
                       <tr>
                         <td style="padding: 5px 0;">
                           <span style="color: #666; font-size: 14px;">Order Number (reference):</span>
-                          <strong style="color: #2c3e50; font-size: 15px; float: right;">#${getOrderDisplayId(order)}</strong>
+                          <strong style="color: #2c3e50; font-size: 15px; float: right;">#${orderDisplayId}</strong>
                         </td>
                       </tr>
                       <tr>
@@ -209,6 +227,7 @@ const getCustomerEmailHTML = (order, orderItems) => {
 const getAdminEmailHTML = (order, orderItems) => {
   const productRows = generateProductRowsHTML(orderItems);
   const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
+  const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
 
   return `
 <!DOCTYPE html>
@@ -228,7 +247,7 @@ const getAdminEmailHTML = (order, orderItems) => {
           <tr>
             <td style="background-color: #2c3e50; padding: 25px; text-align: center;">
               <h1 style="color: #ffffff; margin: 0; font-size: 24px;">🛒 New Order Received!</h1>
-              <p style="color: #ecf0f1; margin: 10px 0 0; font-size: 16px;">Order Number: <strong>#${getOrderDisplayId(order)}</strong> | ${formatCurrency(order.totalAmount)}</p>
+              <p style="color: #ecf0f1; margin: 10px 0 0; font-size: 16px;">Order Number: <strong>#${orderDisplayId}</strong> | ${formatCurrency(order.totalAmount)}</p>
             </td>
           </tr>
           
@@ -250,7 +269,7 @@ const getAdminEmailHTML = (order, orderItems) => {
                 <tr>
                   <td style="padding: 16px 20px;">
                     <span style="color: #2c3e50; font-size: 14px; font-weight: bold;">Order Number (use for reference):</span>
-                    <span style="color: #2c3e50; font-size: 18px; font-weight: bold; margin-left: 10px;">#${getOrderDisplayId(order)}</span>
+                    <span style="color: #2c3e50; font-size: 18px; font-weight: bold; margin-left: 10px;">#${orderDisplayId}</span>
                   </td>
                 </tr>
               </table>
@@ -265,7 +284,7 @@ const getAdminEmailHTML = (order, orderItems) => {
                     <table role="presentation" style="width: 100%;">
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Order Number:</td>
-                        <td style="padding: 5px 0; color: #2c3e50; font-size: 15px; font-weight: bold;">#${getOrderDisplayId(order)}</td>
+                        <td style="padding: 5px 0; color: #2c3e50; font-size: 15px; font-weight: bold;">#${orderDisplayId}</td>
                       </tr>
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Order Date:</td>
@@ -441,6 +460,8 @@ const getCustomerEmailText = (order, orderItems) => {
     )
     .join("\n");
 
+  const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+
   return `
 ORDER CONFIRMATION
 
@@ -450,7 +471,7 @@ Thank you for your order! Your payment has been successfully received.
 
 ORDER DETAILS (use Order Number for reference)
 -------------
-Order Number: #${getOrderDisplayId(order)}
+Order Number: #${orderDisplayId}
 Order Date: ${formatDate(order.createdAt)}
 Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
 
@@ -489,15 +510,17 @@ const getAdminEmailText = (order, orderItems) => {
     )
     .join("\n");
 
+  const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+
   return `
 NEW ORDER RECEIVED - PAYMENT SUCCESSFUL
 
-ORDER NUMBER (use this for reference): #${getOrderDisplayId(order)}
+ORDER NUMBER (use this for reference): #${orderDisplayId}
 -------------------------------------
 
 ORDER INFORMATION
 -----------------
-Order Number: #${getOrderDisplayId(order)}
+Order Number: #${orderDisplayId}
 Order Date: ${formatDate(order.createdAt)}
 Status: PAID
 Total Items: ${totalItems}
@@ -549,6 +572,7 @@ Generated on ${formatDate(new Date())}
 const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
   const transporter = createTransporter();
   const fromEmail = process.env.SMTP_USER;
+  const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
   // Priority: passed adminEmail > ADMIN_ORDER_EMAIL > RECEIVER_EMAIL
   const adminRecipient = adminEmail || process.env.ADMIN_ORDER_EMAIL || process.env.RECEIVER_EMAIL;
 
@@ -569,13 +593,13 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
     const customerMailOptions = {
       from: `"Foxecom" <${fromEmail}>`,
       to: order.emailAddress,
-      subject: `Order Confirmed! Your Order #${getOrderDisplayId(order)} has been placed`,
+      subject: `Order Confirmed! Your Order #${orderDisplayId} has been placed`,
       text: getCustomerEmailText(order, orderItems),
       html: getCustomerEmailHTML(order, orderItems),
       attachments: invoiceBuffer
         ? [
             {
-              filename: `invoice-${(getOrderDisplayId(order) || order.id).toString().replace(/\//g, "-")}.pdf`,
+              filename: `invoice-${orderDisplayId.toString().replace(/\//g, "-")}.pdf`,
               content: invoiceBuffer,
               contentType: "application/pdf",
             },
@@ -597,13 +621,13 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
       const adminMailOptions = {
         from: `"Foxecom Orders" <${fromEmail}>`,
         to: adminRecipient,
-        subject: `🛒 New Order #${getOrderDisplayId(order)} - ${formatCurrency(order.totalAmount)} - Payment Received`,
+        subject: `🛒 New Order #${orderDisplayId} - ${formatCurrency(order.totalAmount)} - Payment Received`,
         text: getAdminEmailText(order, orderItems),
         html: getAdminEmailHTML(order, orderItems),
         attachments: invoiceBuffer
           ? [
               {
-                filename: `invoice-${(getOrderDisplayId(order) || order.id).toString().replace(/\//g, "-")}.pdf`,
+                filename: `invoice-${orderDisplayId.toString().replace(/\//g, "-")}.pdf`,
                 content: invoiceBuffer,
                 contentType: "application/pdf",
               },
@@ -654,13 +678,14 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
   const transporter = createTransporter();
   const fromEmail = process.env.SMTP_USER;
   const frontendBase = process.env.FRONTEND_URL || '';
+  const orderDisplayId = getSafeOrderDisplayId(order, []);
   const safeTrackUrl =
     trackUrl ||
     (frontendBase
       ? `${frontendBase.replace(/\/+$/, '')}/order/${order.id}/track`
       : null);
 
-  const subject = `Your order #${getOrderDisplayId(order)} has been shipped – AWB ${awb}`;
+  const subject = `Your order #${orderDisplayId} has been shipped – AWB ${awb}`;
 
   const html = `
 <!DOCTYPE html>
@@ -679,7 +704,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
             <td style="background:#0d6efd;padding:24px 24px 20px;text-align:left;">
               <h1 style="margin:0;font-size:22px;color:#ffffff;">Your order is on the way</h1>
               <p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,0.9);">
-                Order #${getOrderDisplayId(order)} • AWB ${awb}
+                Order #${orderDisplayId} • AWB ${awb}
               </p>
             </td>
           </tr>
@@ -697,7 +722,7 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
                   <td style="padding:16px 18px;">
                     <p style="margin:0 0 6px;font-size:14px;color:#666;">
                       <span style="color:#6c757d;">Order Number:</span>
-                      <span style="float:right;color:#212529;font-weight:600;">#${getOrderDisplayId(order)}</span>
+                      <span style="float:right;color:#212529;font-weight:600;">#${orderDisplayId}</span>
                     </p>
                     <p style="margin:0 0 6px;font-size:14px;color:#666;">
                       <span style="color:#6c757d;">AWB / Waybill:</span>
@@ -724,6 +749,8 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
                 <strong>Shipping to:</strong>
               </p>
               <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.5;">
+                ${order.flatNumber ? `Flat: ${order.flatNumber}<br/>` : ''}
+                ${order.buildingName ? `Building: ${order.buildingName}<br/>` : ''}
                 ${order.fullAddress || ''}<br/>
                 ${order.townOrCity || ''}, ${order.state || ''} - ${order.pinCode || ''}<br/>
                 ${order.country || ''}
@@ -751,12 +778,12 @@ async function sendShipmentEmailToCustomer({ order, awb, labelUrl = null, trackU
 
   const text = `Your shipment is on the way.
 
-Order Number: #${getOrderDisplayId(order)}
+Order Number: #${orderDisplayId}
 AWB / Waybill: ${awb}
 
 ${safeTrackUrl ? `Track your order: ${safeTrackUrl}\n\n` : ''}
 Shipping to:
-${order.fullAddress || ''}
+${order.flatNumber ? `Flat: ${order.flatNumber}\n` : ''}${order.buildingName ? `Building: ${order.buildingName}\n` : ''}${order.fullAddress || ''}
 ${order.townOrCity || ''}, ${order.state || ''} - ${order.pinCode || ''}
 ${order.country || ''}
 `;

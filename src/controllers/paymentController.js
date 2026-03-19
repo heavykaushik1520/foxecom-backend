@@ -219,9 +219,19 @@ async function payuSuccessCallback(req, res) {
       try {
         const completeOrder = await Order.findByPk(order.id, {
           attributes: [
-            "id", "userId", "totalAmount", "firstName", "lastName",
-            "mobileNumber", "emailAddress", "fullAddress", "townOrCity",
+            "id",
+            "userId",
+            "totalAmount",
+            "firstName",
+            "lastName",
+            "orderNumber",
+            "orderNumberForUser",
+            "awbCode",
+            "mobileNumber", "emailAddress", "flatNumber", "buildingName", "fullAddress", "townOrCity",
             "country", "state", "pinCode", "status",
+            "shipmentId",
+            "shippingLabelUrl",
+            "shipmentStatus",
             "payuTxnId", "payuPaymentId", "paymentMode", "bankRefNo", "payuStatus", "payuError",
             "createdAt", "updatedAt",
           ],
@@ -229,20 +239,17 @@ async function payuSuccessCallback(req, res) {
             {
               model: OrderItem,
               as: "orderItems",
-              include: [{ model: Product, as: "product", attributes: ["id", "title", "price"] }],
+              include: [
+                { model: Product, as: "product", attributes: ["id", "sku", "title", "price"] },
+              ],
             },
           ],
         });
-        if (completeOrder && completeOrder.orderItems) {
-          sendOrderEmails(completeOrder.toJSON(), completeOrder.orderItems)
-            .then((r) => console.log("Order emails sent:", r))
-            .catch((err) => console.error("Error sending order emails:", err));
-        }
-
         const delhiveryConfig = getDelhiveryConfig();
+        let shipResult = null;
         if (delhiveryConfig.isConfigured) {
           console.log("[Delhivery] Creating shipment for order", order.id, "pinCode:", completeOrder.pinCode);
-          const shipResult = await createOrderShipment(completeOrder, { fetchWaybill: false });
+          shipResult = await createOrderShipment(completeOrder, { fetchWaybill: false });
           if (shipResult.success) {
             try {
               await Order.update(
@@ -254,22 +261,14 @@ async function payuSuccessCallback(req, res) {
                 },
                 { where: { id: order.id } }
               );
+
+              // Keep local order object in sync so invoice/email generation gets AWB/order number.
+              completeOrder.awbCode = shipResult.awb || shipResult.waybill;
+              completeOrder.shippingLabelUrl = shipResult.labelUrl;
+              completeOrder.shipmentId = shipResult.shipmentId;
+              completeOrder.shipmentStatus = "created";
+
               console.log("[Delhivery] Auto shipment created for order", order.id, "AWB:", shipResult.waybill);
-              // Send shipment email to customer (safe to call even if AWB existed)
-              try {
-                const trackBase = process.env.FRONTEND_URL || "";
-                const trackUrl = trackBase
-                  ? `${trackBase.replace(/\/+$/, "")}/order/${order.id}/track`
-                  : null;
-                await sendShipmentEmailToCustomer({
-                  order: completeOrder.toJSON ? completeOrder.toJSON() : completeOrder,
-                  awb: shipResult.awb || shipResult.waybill,
-                  labelUrl: shipResult.labelUrl || null,
-                  trackUrl,
-                });
-              } catch (shipMailErr) {
-                console.error("[Delhivery] Shipment email send failed (auto create)", shipMailErr.message);
-              }
             } catch (updateErr) {
               console.error("[Delhivery] Shipment created at Delhivery but DB update failed for order", order.id, updateErr.message);
             }
@@ -278,6 +277,31 @@ async function payuSuccessCallback(req, res) {
           }
         } else {
           console.warn("[Delhivery] Skipping auto shipment: not configured. Set in .env: DELHIVERY_API_KEY, DELHIVERY_BASE_URL, DELHIVERY_PICKUP_LOCATION or DELHIVERY_WAREHOUSE_CODE");
+        }
+
+        // Send order confirmation emails (admin + customer) after we have AWB (when available).
+        if (completeOrder && completeOrder.orderItems) {
+          await sendOrderEmails(completeOrder.toJSON(), completeOrder.orderItems)
+            .then((r) => console.log("Order emails sent:", r))
+            .catch((err) => console.error("Error sending order emails:", err));
+        }
+
+        // Send shipment email to customer after order confirmation email.
+        if (shipResult?.success) {
+          try {
+            const trackBase = process.env.FRONTEND_URL || "";
+            const trackUrl = trackBase
+              ? `${trackBase.replace(/\/+$/, "")}/order/${order.id}/track`
+              : null;
+            await sendShipmentEmailToCustomer({
+              order: completeOrder.toJSON ? completeOrder.toJSON() : completeOrder,
+              awb: shipResult.awb || shipResult.waybill,
+              labelUrl: shipResult.labelUrl || null,
+              trackUrl,
+            });
+          } catch (shipMailErr) {
+            console.error("[Delhivery] Shipment email send failed (auto create)", shipMailErr.message);
+          }
         }
       } catch (emailErr) {
         console.error("[Delhivery] Error in post-payment job (emails/shipment):", emailErr.message);

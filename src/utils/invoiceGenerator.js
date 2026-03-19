@@ -1,5 +1,5 @@
 const PDFDocument = require("pdfkit");
-const { getOrderDisplayId } = require("./orderNumberHelper");
+const { getOrderDisplayId, buildOrderNumber } = require("./orderNumberHelper");
 
 const GST_RATE = 0.18;
 
@@ -84,9 +84,18 @@ function buildInvoiceMeta(order, orderItems = []) {
     shippedBy: SHIPPED_BY_TEXT,
     invoiceDate: order?.createdAt ? new Date(order.createdAt) : new Date(),
     deliveryDate: null,
-    orderNumber: order ? `#${getOrderDisplayId(order)}` : "",
+    orderNumber: (() => {
+      if (!order) return "";
+      if (order.orderNumber) return `#${order.orderNumber}`;
+      if (order.id != null && order.createdAt) {
+        // Build order number from SKU_LAST4/DDMMYYYY/orderId.
+        const firstSku = firstLine?.sku || "";
+        return `#${buildOrderNumber(order.id, order.createdAt, firstSku)}`;
+      }
+      return `#${getOrderDisplayId(order)}`;
+    })(),
     foxecomIp: firstLine?.sku || "",
-    awb: order?.awbCode || "",
+    awb: order?.awbCode || order?.awb || order?.waybill || "",
     customerName: `${order?.firstName || ""} ${order?.lastName || ""}`.trim(),
     customerAddress: {
       flatNumber: order?.flatNumber || "",
@@ -121,78 +130,51 @@ function createInvoicePdf(order, orderItems = []) {
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", (err) => reject(err));
 
-      doc.fontSize(16).font("Helvetica-Bold").text("CUSTOMER INVOICE", {
-        align: "left",
-      });
-      doc.moveDown(0.3);
-      doc.fontSize(11).font("Helvetica-Bold").text("Order Number: ", { continued: true });
+      const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const leftX = doc.page.margins.left;
+      const safeWidth = pageWidth - 20;
+
+      doc.fontSize(14).font("Helvetica-Bold");
+      doc.text("CUSTOMER INVOICE", leftX, doc.y, { width: safeWidth });
+      doc.moveDown(0.4);
+
+      doc.fontSize(10).font("Helvetica-Bold").text("Order Number: ", { continued: true });
       doc.font("Helvetica").text(invoice.orderNumber || "-");
       doc.moveDown(0.5);
-      doc
-        .fontSize(9)
-        .font("Helvetica-Bold")
-        .text("Shipped By:", {
-          align: "left",
-        });
-      doc
-        .moveDown(0.2)
-        .font("Helvetica")
-        .text(invoice.shippedBy, {
-          align: "left",
-        });
+
+      doc.fontSize(9).font("Helvetica-Bold").text("Shipped By:", { width: safeWidth });
+      doc.moveDown(0.2).font("Helvetica").text(invoice.shippedBy, { width: safeWidth });
 
       doc.moveDown(1);
 
-      const leftX = doc.x;
-      const rightX = 320;
+      const rightX = leftX + 300;
+      const labelWidth = 90;
+      let headerY = doc.y;
 
-      doc
-        .fontSize(9)
-        .font("Helvetica-Bold")
-        .text("Invoice Date:", leftX, doc.y);
-      doc
-        .font("Helvetica")
-        .text(
-          invoice.invoiceDate.toLocaleDateString("en-IN"),
-          leftX + 80,
-          doc.y - 12
-        );
+      doc.fontSize(9).font("Helvetica-Bold").text("Invoice Date:", leftX, headerY);
+      doc.font("Helvetica").text(invoice.invoiceDate.toLocaleDateString("en-IN"), leftX + labelWidth, headerY);
 
-      doc
-        .font("Helvetica-Bold")
-        .text("Deliver Date:", leftX, doc.y + 8);
-      doc.font("Helvetica").text("-", leftX + 80, doc.y - 12);
+      doc.font("Helvetica-Bold").text("Deliver Date:", leftX, headerY + 14);
+      doc.font("Helvetica").text("-", leftX + labelWidth, headerY + 14);
 
-      doc
-        .font("Helvetica-Bold")
-        .text("Order Number:", rightX, doc.y - 8);
-      doc.font("Helvetica-Bold").text(invoice.orderNumber, rightX + 100, doc.y - 12);
+      doc.font("Helvetica-Bold").text("Order Number:", rightX, headerY);
+      doc.font("Helvetica").text(invoice.orderNumber || "-", rightX + labelWidth, headerY, { width: 120 });
 
-      doc
-        .font("Helvetica-Bold")
-        .text("FOXECOM IP:", rightX, doc.y + 8);
-      doc.font("Helvetica").text(invoice.foxecomIp || "-", rightX + 70, doc.y - 12);
+      doc.font("Helvetica-Bold").text("FOXECOM IP:", rightX, headerY + 14);
+      doc.font("Helvetica").text(invoice.foxecomIp || "-", rightX + labelWidth, headerY + 14);
 
-      doc
-        .font("Helvetica-Bold")
-        .text("AWB / Waybill:", rightX, doc.y + 8);
-      doc.font("Helvetica").text(invoice.awb || "-", rightX + 70, doc.y - 12);
+      doc.font("Helvetica-Bold").text("AWB / Waybill:", rightX, headerY + 28);
+      doc.font("Helvetica").text(invoice.awb || "-", rightX + labelWidth, headerY + 28);
 
-      doc.moveDown(2);
+      doc.y = headerY + 42;
+      doc.moveDown(1);
 
-      doc
-        .fontSize(10)
-        .font("Helvetica-Bold")
-        .text("Bill To:", leftX, doc.y);
-      doc.font("Helvetica");
+      doc.fontSize(10).font("Helvetica-Bold").text("Bill To:", leftX, doc.y);
+      doc.moveDown(0.3).font("Helvetica");
       doc.text(invoice.customerName || "Customer");
-      if (invoice.customerAddress.flatNumber) {
-        doc.text(`Flat: ${invoice.customerAddress.flatNumber}`);
-      }
-      if (invoice.customerAddress.buildingName) {
-        doc.text(invoice.customerAddress.buildingName);
-      }
-      doc.text(invoice.customerAddress.fullAddress);
+      doc.text(`Flat / Door No: ${(invoice.customerAddress.flatNumber || "").trim() || "—"}`);
+      doc.text(`Building / Society: ${(invoice.customerAddress.buildingName || "").trim() || "—"}`);
+      doc.text(invoice.customerAddress.fullAddress || "—");
       doc.text(
         `${invoice.customerAddress.townOrCity}, ${invoice.customerAddress.state} - ${invoice.customerAddress.pinCode}`
       );

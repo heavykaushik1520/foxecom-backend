@@ -748,11 +748,14 @@ async function getOrderInvoicePdf(req, res) {
         "lastName",
         "mobileNumber",
         "emailAddress",
+        "flatNumber",
+        "buildingName",
         "fullAddress",
         "townOrCity",
         "country",
         "state",
         "pinCode",
+        "awbCode",
         "status",
         "payuTxnId",
         "payuPaymentId",
@@ -771,6 +774,7 @@ async function getOrderInvoicePdf(req, res) {
             {
               model: Product,
               as: "product",
+              attributes: ["sku", "title"],
             },
           ],
         },
@@ -787,7 +791,12 @@ async function getOrderInvoicePdf(req, res) {
       typeof order.toJSON === "function" ? order.toJSON() : order;
     const pdfBuffer = await createInvoicePdf(plainOrder, plainOrder.orderItems);
 
-    const displayId = plainOrder.orderNumber || plainOrder.id;
+    const firstSku = plainOrder.orderItems?.[0]?.product?.sku ?? null;
+    const displayId =
+      plainOrder.orderNumber ||
+      (plainOrder.id != null && plainOrder.createdAt
+        ? buildOrderNumber(plainOrder.id, plainOrder.createdAt, firstSku)
+        : plainOrder.id);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
