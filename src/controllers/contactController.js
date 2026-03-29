@@ -4,6 +4,18 @@ const nodemailer = require("nodemailer");
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 const onlyDigits = (value) => String(value || "").replace(/[^\d]/g, "");
 
+/** 10-digit Indian mobile: optional +91 or leading 0 stripped; must match [6-9] + 9 digits. */
+function normalizeIndianMobile10(value) {
+  let digits = onlyDigits(value);
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  return digits;
+}
+
+function isValidIndianMobile10(digits) {
+  return /^[6-9]\d{9}$/.test(digits);
+}
+
 const createContactTransporter = () => {
   const host = process.env.CONTACT_SMTP_HOST;
   const port = parseInt(process.env.CONTACT_SMTP_PORT, 10) || 587;
@@ -37,12 +49,14 @@ async function submitContactForm(req, res) {
     const trimmedName = String(name || "").trim();
     const trimmedEmail = String(email || "").trim();
     const trimmedMessage = String(message || "").trim();
-    const phoneDigits = onlyDigits(phone);
+    const phoneDigits = normalizeIndianMobile10(phone);
 
     const errors = [];
     if (!trimmedName) errors.push("Name is required.");
     if (!trimmedEmail || !isValidEmail(trimmedEmail)) errors.push("Valid email is required.");
-    if (!phoneDigits || phoneDigits.length < 10) errors.push("Valid phone number is required.");
+    if (!isValidIndianMobile10(phoneDigits)) {
+      errors.push("Enter a valid 10-digit Indian mobile number.");
+    }
     if (!trimmedMessage) errors.push("Message is required.");
 
     if (errors.length > 0) {

@@ -47,7 +47,8 @@ async function signupUser(req, res) {
 }
 
 async function signinUser(req, res) {
-  const { email, password } = req.body;
+  const email = (req.body?.email || "").trim().toLowerCase();
+  const password = req.body?.password;
 
   if (!email || !password) {
     return res.status(400).json({ message: "Email and password are required." });
@@ -57,6 +58,15 @@ async function signinUser(req, res) {
     const user = await User.findOne({ where: { email } });
 
     if (!user) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not configured.");
+      return res.status(500).json({ message: "Server auth configuration error." });
+    }
+
+    if (!user.password || typeof user.password !== "string") {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 

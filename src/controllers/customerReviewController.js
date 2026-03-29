@@ -1,4 +1,6 @@
 const { CustomerReview, Order, OrderItem, Product, User } = require("../models");
+const { Op } = require("sequelize");
+const { markReminderReviewed } = require("../services/reviewReminderService");
 
 /**
  * Create or update a customer review for a product.
@@ -31,11 +33,11 @@ async function createOrUpdateCustomerReview(req, res) {
       return res.status(404).json({ message: "Product not found." });
     }
 
-    // Check that the user has at least one delivered order containing this product
+    // Check that the user has at least one paid/delivered order containing this product.
     const order = await Order.findOne({
       where: {
         userId,
-        status: "delivered",
+        status: { [Op.in]: ["paid", "delivered"] },
       },
       include: [
         {
@@ -79,6 +81,12 @@ async function createOrUpdateCustomerReview(req, res) {
         reviewText: sanitizedReviewText,
         isVerifiedPurchase: true,
       });
+    }
+
+    try {
+      await markReminderReviewed({ userId, productId: productIdNum });
+    } catch (e) {
+      console.error("[ReviewReminder] Failed to mark reminder reviewed:", e.message);
     }
 
     return res.status(201).json({

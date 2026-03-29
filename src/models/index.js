@@ -17,7 +17,10 @@ const DealOfTheWeek = require('./dealOfTheWeek');
 const DealOfTheWeekProduct = require('./dealOfTheWeekProduct');
 const BuyOneGetOne = require('./buyOneGetOne');
 const BuyOneGetOneProduct = require('./buyOneGetOneProduct');
+const FoxcomOriginals = require('./foxcomOriginals');
+const FoxcomOriginalsProduct = require('./foxcomOriginalsProduct');
 const CustomerReview = require('./customerReview');
+const ReviewReminder = require("./reviewReminder");
 
 const models = {
   Admin,
@@ -39,7 +42,10 @@ const models = {
   DealOfTheWeekProduct,
   BuyOneGetOne,
   BuyOneGetOneProduct,
+  FoxcomOriginals,
+  FoxcomOriginalsProduct,
   CustomerReview,
+  ReviewReminder,
 };
 
 // Apply associations

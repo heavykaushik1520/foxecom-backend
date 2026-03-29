@@ -1,6 +1,7 @@
 // controllers/adminOrderController.js
 
 const { Order, OrderItem, Product, User } = require('../models');
+const { createReviewRemindersForDeliveredOrder } = require("../services/reviewReminderService");
 
 async function getAllOrdersForAdmin(req, res) {
   try {
@@ -112,10 +113,18 @@ async function updateOrderStatus(req, res) {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+    const prevStatus = order.status;
 
     // Prepare update data
     const updateData = {};
-    if (status) updateData.status = status;
+    const requestedStatus = status;
+    const nextStatus = requestedStatus === "delivered" ? "paid" : requestedStatus;
+    if (requestedStatus) updateData.status = nextStatus;
+    // Keep review eligibility consistent: if admin marks an order as delivered,
+    // ensure shipmentStatus is also delivered.
+    if (requestedStatus === "delivered" && updateData.shipmentStatus === undefined) {
+      updateData.shipmentStatus = "delivered";
+    }
     if (shiprocketOrderId !== undefined) updateData.shiprocketOrderId = shiprocketOrderId;
     if (shipmentId !== undefined) updateData.shipmentId = shipmentId;
     if (awbCode !== undefined) updateData.awbCode = awbCode;
@@ -124,6 +133,22 @@ async function updateOrderStatus(req, res) {
     if (shippingLabelUrl !== undefined) updateData.shippingLabelUrl = shippingLabelUrl;
 
     await order.update(updateData);
+
+    const isPaidRequestedTransition =
+      requestedStatus === "paid" && prevStatus !== "paid";
+    if (isPaidRequestedTransition) {
+      try {
+        await createReviewRemindersForDeliveredOrder({
+          orderId: order.id,
+          deliveredAt: new Date(),
+        });
+      } catch (e) {
+        console.error(
+          "[ReviewReminder] Failed to create reminders when admin sets paid:",
+          e.message
+        );
+      }
+    }
 
     // Fetch updated order with associations
     const updatedOrder = await Order.findByPk(id, {

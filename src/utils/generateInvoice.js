@@ -1,5 +1,6 @@
 const PDFDocument = require("pdfkit");
 const path = require("path");
+const fs = require("fs");
 const { getOrderDisplayId } = require("./orderNumberHelper");
 
 const generateInvoiceBuffer = (order, orderItems) => {
@@ -11,9 +12,20 @@ const generateInvoiceBuffer = (order, orderItems) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const logoPath = path.join(__dirname, "../assets/logo.png");
+    const logoPath = path.join(__dirname, "../assets/logo-2.png");
     try {
-        doc.image(logoPath, 50, 30, { width: 100 });
+        const logoBoxWidth = 110;
+        const logoBoxHeight = 34;
+        const rightEdge = doc.page.width - doc.page.margins.right;
+        const logoX = rightEdge - logoBoxWidth;
+        const logoY = Math.max(doc.page.margins.top, 18);
+        if (fs.existsSync(logoPath)) {
+          doc.image(logoPath, logoX, logoY, {
+            fit: [logoBoxWidth, logoBoxHeight], // preserve aspect ratio
+            align: "right",
+            valign: "top",
+          });
+        }
     } catch (error) {
         console.error("Error loading logo image:", error);
         doc.fontSize(10).text("Company Logo", 50, 30);
@@ -108,7 +120,27 @@ const generateInvoiceBuffer = (order, orderItems) => {
       .moveTo(tableLeftX, doc.y)
       .lineTo(tableRightX, doc.y)
       .stroke();
-    doc.moveDown(1.5); 
+    doc.moveDown(1.1);
+
+    const signPath = path.join(__dirname, "../assets/sign.png");
+    const signWidth = 120;
+    const signHeight = 42;
+    const signY = doc.y;
+    if (fs.existsSync(signPath)) {
+      doc.image(signPath, tableLeftX, signY, {
+        fit: [signWidth, signHeight],
+        align: "left",
+        valign: "top",
+      });
+    }
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .text("for foxecom.in", tableLeftX, signY + signHeight + 8, {
+        width: signWidth,
+        align: "left",
+      });
+    doc.y = signY + signHeight + 30;
 
     
     const totalTextLabel = "Total Paid:";

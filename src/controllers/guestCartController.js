@@ -2,6 +2,15 @@
 const { Cart, CartItem, Product, ProductImage, Category } = require("../models");
 const { Op } = require("sequelize");
 const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+
+function toValidGuestCartId(value) {
+    const parsed = parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function generateGuestCartId() {
+    return Math.floor(100000 + Math.random() * 900000);
+}
 // Get or Create Guest Cart
 async function getGuestCart(req, res) {
     const { guestCartId } = req.params;
@@ -10,13 +19,26 @@ async function getGuestCart(req, res) {
     try {
         let cart;
         if (guestCartId) {
-            cart = await fetchGuestCartWithProducts(guestCartId);
+            const parsedGuestCartId = toValidGuestCartId(guestCartId);
+            if (!parsedGuestCartId) {
+                return res.status(400).json({ message: "Invalid guestCartId. It must be a positive number." });
+            }
+
+            cart = await fetchGuestCartWithProducts(parsedGuestCartId);
             if (!cart) {
                 return res.status(404).json({ message: "Guest cart not found." });
             }
         } else if (isPostRequest) {
-            // Generate a simple numeric ID for guest cart if not provided
-            const newGuestId = req.body.guestCartId || Math.floor(100000 + Math.random() * 900000); // Simple 6 digit random
+            // Accept only numeric guestCartId from client. If invalid/missing, generate a safe one.
+            const requestedGuestId = toValidGuestCartId(req.body?.guestCartId);
+            const newGuestId = requestedGuestId || generateGuestCartId();
+
+            // If this ID already exists (e.g. repeated init call), return existing cart instead of 500.
+            const existing = await fetchGuestCartWithProducts(newGuestId);
+            if (existing) {
+                return res.status(200).json({ guestCartId: existing.guestCartId, cart: existing });
+            }
+
             cart = await Cart.create({ guestCartId: newGuestId });
             return res.status(201).json({ guestCartId: cart.guestCartId, cart: { ...cart.toJSON(), products: [] } });
         } else {
@@ -26,6 +48,17 @@ async function getGuestCart(req, res) {
         res.status(200).json(cart);
     } catch (error) {
         console.error("Error handling guest cart:", error);
+
+        if (error.name === "SequelizeUniqueConstraintError") {
+            const recoveredGuestId = toValidGuestCartId(req.body?.guestCartId);
+            if (recoveredGuestId) {
+                const existing = await fetchGuestCartWithProducts(recoveredGuestId);
+                if (existing) {
+                    return res.status(200).json({ guestCartId: existing.guestCartId, cart: existing });
+                }
+            }
+        }
+
         res.status(500).json({ message: "Failed to process guest cart.", error: error.message });
     }
 }

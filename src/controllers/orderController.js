@@ -667,13 +667,17 @@ async function trackOrderStatus(req, res) {
 
       if (result.success) {
         const patch = {};
+        // Track delivery via carrier's shipmentStatus transition.
+        const wasDeliveredTransition =
+          result.status === "delivered" && order.shipmentStatus !== "delivered";
 
         if (result.status && result.status !== order.shipmentStatus) {
           patch.shipmentStatus = result.status;
         }
 
-        if (result.status === "delivered" && order.status !== "delivered") {
-          patch.status = "delivered";
+        if (wasDeliveredTransition) {
+          // For now, we use `paid` as the state that unlocks review/reminder flow.
+          patch.status = "paid";
         } else if (
           [
             "manifested",
@@ -681,7 +685,8 @@ async function trackOrderStatus(req, res) {
             "in_transit",
             "out_for_delivery",
           ].includes(result.status) &&
-          !["delivered", "cancelled"].includes(order.status)
+          order.shipmentStatus !== "delivered" &&
+          !["cancelled"].includes(order.status)
         ) {
           patch.status = "shipped";
         }

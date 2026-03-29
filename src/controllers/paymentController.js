@@ -5,6 +5,7 @@ const { sendOrderEmails } = require("../utils/sendOrderEmails");
 const { sendShipmentEmailToCustomer } = require("../utils/sendOrderEmails");
 const { createOrderShipment } = require("../services/delhivery/orderShipment");
 const { getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
+const { createReviewRemindersForDeliveredOrder } = require("../services/reviewReminderService");
 
 /**
  * Verify PayU response hash (callback). Never skip in production or test.
@@ -214,6 +215,17 @@ async function payuSuccessCallback(req, res) {
       status: "paid",
     };
     await order.update(update);
+
+    // Schedule review reminders ~10 minutes after payment.
+    // Idempotency is handled by unique constraints in `review_reminders`.
+    try {
+      await createReviewRemindersForDeliveredOrder({
+        orderId: order.id,
+        deliveredAt: new Date(),
+      });
+    } catch (e) {
+      console.error("[ReviewReminder] Failed to create reminders after payment:", e.message);
+    }
 
     setImmediate(async () => {
       try {
@@ -429,6 +441,16 @@ async function verifyPayment(req, res) {
         paymentMode: verifyResult.mode || verifyResult.payment_mode || order.paymentMode,
         bankRefNo: verifyResult.bank_ref_num || verifyResult.bankrefno || order.bankRefNo,
       });
+
+      // Schedule review reminders ~10 minutes after verified payment.
+      try {
+        await createReviewRemindersForDeliveredOrder({
+          orderId: order.id,
+          deliveredAt: new Date(),
+        });
+      } catch (e) {
+        console.error("[ReviewReminder] Failed to create reminders after verified payment:", e.message);
+      }
     }
 
     return res.status(200).json({

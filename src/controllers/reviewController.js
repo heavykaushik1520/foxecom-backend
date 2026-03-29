@@ -1,15 +1,88 @@
-const { Review, ProductRatingSummary } = require("../models");
+const { Review, ProductRatingSummary, CustomerReview, User } = require("../models");
+
+function maskEmail(email) {
+  const value = String(email || "").trim();
+  if (!value) return "Customer";
+  if (!value.includes("@")) {
+    // If we don't have a domain, mask the whole value.
+    if (value.length <= 2) return `${value[0] || ""}***`;
+    const first = value[0];
+    const last = value[value.length - 1];
+    const starCount = value.length - 2 >= 7 ? 7 : Math.max(1, value.length - 2);
+    return `${first}${"*".repeat(starCount)}${last}`;
+  }
+
+  const [userPart, domain] = value.split("@");
+  if (!domain) return "Customer";
+  if (!userPart || userPart.length <= 2) return `${userPart[0] || ""}***@${domain}`;
+
+  const first = userPart[0];
+  const last = userPart[userPart.length - 1];
+  const starCount = userPart.length - 2 >= 7 ? 7 : Math.max(1, userPart.length - 2);
+  // Example: a*******z@gmail.com
+  return `${first}${"*".repeat(starCount)}${last}@${domain}`;
+}
+
+function reviewerDisplayName(user) {
+  if (!user) return "Customer";
+  const email = user.email ? String(user.email) : "";
+  return maskEmail(email);
+}
+
+/**
+ * Purchaser-written reviews (CustomerReview), shaped like admin Review rows for the storefront.
+ */
+async function fetchCustomerReviewsPublic(productIdNum) {
+  const rows = await CustomerReview.findAll({
+    where: { productId: productIdNum },
+    attributes: ["id", "rating", "reviewText", "createdAt", "isVerifiedPurchase"],
+    include: [
+      {
+        model: User,
+        as: "user",
+        attributes: ["id", "email"],
+      },
+    ],
+    order: [["createdAt", "DESC"]],
+  });
+
+  return rows.map((cr) => ({
+    id: `customer-${cr.id}`,
+    reviewerName: reviewerDisplayName(cr.user),
+    rating: cr.rating,
+    reviewText: cr.reviewText,
+    createdAt: cr.createdAt,
+    isVerifiedPurchase: Boolean(cr.isVerifiedPurchase),
+  }));
+}
+
+function mergeReviewsByDate(adminRows, customerRows) {
+  const adminJson = adminRows.map((r) => ({
+    id: r.id,
+    reviewerName: r.reviewerName,
+    rating: r.rating,
+    reviewText: r.reviewText,
+    createdAt: r.createdAt,
+    isVerifiedPurchase: false,
+  }));
+  return [...adminJson, ...customerRows].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+}
 
 /**
  * Get reviews for a product (public, no auth required).
  * If product has an admin rating summary (star counts), returns that as primary data:
- * averageRating, totalCount, distribution (counts per star 1-5), reviews: [].
- * Otherwise returns individual reviews from Review table as before.
+ * averageRating, totalCount, distribution (counts per star 1-5). The `reviews` array
+ * still includes purchaser-written CustomerReview entries so the product page can list them.
+ * Without a summary, merges admin Review rows and CustomerReview rows.
  */
 async function getReviewsByProduct(req, res) {
   try {
     const { productId } = req.params;
     const productIdNum = parseInt(productId, 10);
+
+    const customerReviews = await fetchCustomerReviewsPublic(productIdNum);
 
     const summary = await ProductRatingSummary.findOne({
       where: { productId: productIdNum },
@@ -28,7 +101,7 @@ async function getReviewsByProduct(req, res) {
           : 0;
 
       return res.json({
-        reviews: [],
+        reviews: customerReviews,
         averageRating: Math.round(averageRating * 10) / 10,
         totalCount,
         distribution: {
@@ -47,15 +120,16 @@ async function getReviewsByProduct(req, res) {
       order: [["createdAt", "DESC"]],
     });
 
+    const combined = mergeReviewsByDate(reviews, customerReviews);
     const avgRating =
-      reviews.length > 0
-        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+      combined.length > 0
+        ? combined.reduce((sum, r) => sum + r.rating, 0) / combined.length
         : 0;
 
     return res.json({
-      reviews,
+      reviews: combined,
       averageRating: Math.round(avgRating * 10) / 10,
-      totalCount: reviews.length,
+      totalCount: combined.length,
     });
   } catch (error) {
     console.error("Error fetching reviews:", error);

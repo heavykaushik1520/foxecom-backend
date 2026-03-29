@@ -224,14 +224,15 @@ async function updateProduct(req, res) {
                 updatePayload.thumbnailImage = `/uploads/images/${thumbnailFile.filename}`;
             }
 
-            const [updatedRows] = await Product.update(updatePayload, {
-                where: { id: id },
-            });
+            // const [updatedRows] = await Product.update(updatePayload, {
+            //     where: { id: id },
+            // });
 
-            const productExists = await Product.findByPk(id);
-            if (!productExists) {
-                return res.status(404).json({ message: "Product not found" });
-            }
+            // const productExists = await Product.findByPk(id);
+            // if (!productExists) {
+            //     return res.status(404).json({ message: "Product not found" });
+            // }
+            await product.update(updatePayload);
 
             // Add new gallery images first
             if (galleryFiles && galleryFiles.length > 0) {
@@ -381,7 +382,7 @@ async function searchProductsByName(req, res) {
 // Enhanced filtering and sorting function
 async function filterAndSortProducts(req, res) {
     try {
-        const {
+        let {
             // Pagination
             page = 1,
             limit = 12,

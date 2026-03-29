@@ -39,13 +39,18 @@ const bannerRoutes = require('./routes/bannerRoutes');
 const delhiveryRoutes = require('./routes/delhiveryRoutes');
 const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
 const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
+const foxcomOriginalsRoutes = require('./routes/foxcomOriginalsRoutes');
 const googleAuthRoutes = require('./routes/googleAuthRoutes');
+const metaProductFeedRoutes = require("./routes/metaProductFeedRoutes");
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
 const customerReviewRoutes = require('./routes/customerReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.set('trust proxy', true);
 const path = require('path');
 
 // Middleware
@@ -77,6 +82,8 @@ app.use(passport.session());
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
+  'https://foxecom.in',
+  'https://www.foxecom.in',
   'https://artiststation.co.in',
   // PayU redirects (browser sends these as Origin when returning from PayU)
   'https://test.payu.in',
@@ -197,6 +204,15 @@ app.use("/api", dealOfTheWeekRoutes);
 
 // Buy One Get One routes – public GET, admin CRUD
 app.use("/api", buyOneGetOneRoutes);
+
+// FOXECOM Originals routes – public GET, admin CRUD
+app.use("/api", foxcomOriginalsRoutes);
+
+// Meta Product Catalog CSV feed
+app.use("/api", metaProductFeedRoutes);
+
+// Website analytics (public POST visit; admin-only read endpoints)
+app.use('/api', analyticsRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {
