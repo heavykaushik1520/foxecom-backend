@@ -10,6 +10,18 @@ const Product = sequelize.define(
       autoIncrement: true
     },
     title: { type: DataTypes.STRING, allowNull: false },
+    slug: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      unique: true,
+      validate: {
+        isLowercaseIfPresent(value) {
+          if (value != null && value !== "" && value !== String(value).toLowerCase()) {
+            throw new Error("Slug must be stored in lowercase.");
+          }
+        },
+      },
+    },
     categoryId: { type: DataTypes.INTEGER, allowNull: false },
     price: {
       type: DataTypes.DECIMAL(10, 2),

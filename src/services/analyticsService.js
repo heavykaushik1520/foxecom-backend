@@ -142,6 +142,204 @@ async function getDailyStats(days) {
   return out;
 }
 
+/** Non-cancelled orders only (same units as shipped revenue reporting). */
+const SALES_ORDER_FILTER = "o.status <> 'cancelled'";
+
+function clampInt(value, min, max, fallback) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * Optional rolling window on order `createdAt`.
+ * @param {number | null | undefined} days
+ */
+function salesDateFilter(days) {
+  if (days == null || !Number.isFinite(Number(days)) || Number(days) <= 0) {
+    return { clause: '', params: [] };
+  }
+  const d = Math.min(Math.max(Math.floor(Number(days)), 1), 3660);
+  return {
+    clause: ' AND o.`createdAt` >= DATE_SUB(NOW(), INTERVAL ? DAY) ',
+    params: [d],
+  };
+}
+
+function roundMoney(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round((x + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * One case-details row per product (avoids duplicate joins if data has multiples).
+ */
+const CASE_DETAILS_JOIN = `
+  LEFT JOIN (
+    SELECT cd0.*
+    FROM \`caseDetails\` cd0
+    INNER JOIN (
+      SELECT productId, MIN(id) AS pickId FROM \`caseDetails\` GROUP BY productId
+    ) pick ON pick.pickId = cd0.id
+  ) cd ON cd.productId = p.id
+`;
+
+/**
+ * Sales analytics from order line items (admin).
+ * @param {{ days?: number | null, limit?: number }} opts
+ */
+async function getSalesAnalytics(opts = {}) {
+  const limit = clampInt(opts.limit, 1, 200, 50);
+  const { clause: dateClause, params: dateParams } = salesDateFilter(opts.days);
+
+  const baseJoin = `
+    FROM \`order_items\` oi
+    INNER JOIN \`orders\` o ON oi.orderId = o.id
+    INNER JOIN \`products\` p ON oi.productId = p.id
+    ${CASE_DETAILS_JOIN}
+    LEFT JOIN \`mobileBrands\` mb ON cd.brandId = mb.id
+    LEFT JOIN \`mobileModels\` mm ON cd.modelId = mm.id
+    WHERE ${SALES_ORDER_FILTER}${dateClause}
+  `;
+
+  const totalsParams = [...dateParams];
+  const [totRows] = await pool.query(
+    `SELECT
+       COALESCE(SUM(oi.quantity), 0) AS unitsSold,
+       COALESCE(SUM(oi.quantity * oi.priceAtPurchase), 0) AS revenue,
+       COUNT(DISTINCT oi.orderId) AS orderCount,
+       COUNT(*) AS lineItemCount
+     FROM \`order_items\` oi
+     INNER JOIN \`orders\` o ON oi.orderId = o.id
+     WHERE ${SALES_ORDER_FILTER}${dateClause}`,
+    totalsParams
+  );
+  const t = totRows[0] || {};
+  const totals = {
+    unitsSold: toNumber(t.unitsSold),
+    revenue: roundMoney(t.revenue),
+    orderCount: toNumber(t.orderCount),
+    lineItemCount: toNumber(t.lineItemCount),
+  };
+
+  const topParams = [...dateParams, limit];
+  const [topRows] = await pool.query(
+    `SELECT
+       p.id AS productId,
+       p.title AS productTitle,
+       p.sku AS sku,
+       p.thumbnailImage AS thumbnailImage,
+       COALESCE(SUM(oi.quantity), 0) AS unitsSold,
+       COALESCE(SUM(oi.quantity * oi.priceAtPurchase), 0) AS revenue,
+       COUNT(DISTINCT oi.orderId) AS orderCount
+     FROM \`order_items\` oi
+     INNER JOIN \`orders\` o ON oi.orderId = o.id
+     INNER JOIN \`products\` p ON oi.productId = p.id
+     WHERE ${SALES_ORDER_FILTER}${dateClause}
+     GROUP BY p.id, p.title, p.sku, p.thumbnailImage
+     ORDER BY unitsSold DESC, revenue DESC
+     LIMIT ?`,
+    topParams
+  );
+
+  const brandParams = [...dateParams];
+  const [brandRows] = await pool.query(
+    `SELECT
+       COALESCE(cd.brandId, 0) AS brandId,
+       COALESCE(mb.name, 'Not linked (no case details)') AS brandName,
+       COALESCE(SUM(oi.quantity), 0) AS unitsSold,
+       COALESCE(SUM(oi.quantity * oi.priceAtPurchase), 0) AS revenue,
+       COUNT(DISTINCT oi.orderId) AS orderCount
+     ${baseJoin}
+     GROUP BY COALESCE(cd.brandId, 0), COALESCE(mb.name, 'Not linked (no case details)')
+     ORDER BY unitsSold DESC, revenue DESC`,
+    brandParams
+  );
+
+  const modelParams = [...dateParams];
+  const [modelRows] = await pool.query(
+    `SELECT
+       COALESCE(cd.modelId, 0) AS modelId,
+       COALESCE(mm.name, 'Not linked') AS modelName,
+       COALESCE(cd.brandId, 0) AS brandId,
+       COALESCE(mb.name, '—') AS brandName,
+       COALESCE(SUM(oi.quantity), 0) AS unitsSold,
+       COALESCE(SUM(oi.quantity * oi.priceAtPurchase), 0) AS revenue,
+       COUNT(DISTINCT oi.orderId) AS orderCount
+     ${baseJoin}
+     GROUP BY COALESCE(cd.modelId, 0), COALESCE(mm.name, 'Not linked'),
+              COALESCE(cd.brandId, 0), COALESCE(mb.name, '—')
+     ORDER BY unitsSold DESC, revenue DESC`,
+    modelParams
+  );
+
+  const deviceExpr = `COALESCE(
+    NULLIF(TRIM(cd.caseType), ''),
+    NULLIF(TRIM(cd.material), ''),
+    'Unspecified'
+  )`;
+
+  const deviceParams = [...dateParams];
+  const [deviceRows] = await pool.query(
+    `SELECT
+       ${deviceExpr} AS deviceLabel,
+       COALESCE(SUM(oi.quantity), 0) AS unitsSold,
+       COALESCE(SUM(oi.quantity * oi.priceAtPurchase), 0) AS revenue,
+       COUNT(DISTINCT oi.orderId) AS orderCount
+     ${baseJoin}
+     GROUP BY ${deviceExpr}
+     ORDER BY unitsSold DESC, revenue DESC`,
+    deviceParams
+  );
+
+  const topProducts = topRows.map((row) => ({
+    productId: toNumber(row.productId),
+    productTitle: row.productTitle,
+    sku: row.sku,
+    thumbnailImage: row.thumbnailImage,
+    unitsSold: toNumber(row.unitsSold),
+    revenue: roundMoney(row.revenue),
+    orderCount: toNumber(row.orderCount),
+  }));
+
+  const byBrand = brandRows.map((row) => ({
+    brandId: toNumber(row.brandId),
+    brandName: row.brandName,
+    unitsSold: toNumber(row.unitsSold),
+    revenue: roundMoney(row.revenue),
+    orderCount: toNumber(row.orderCount),
+  }));
+
+  const byModel = modelRows.map((row) => ({
+    modelId: toNumber(row.modelId),
+    modelName: row.modelName,
+    brandId: toNumber(row.brandId),
+    brandName: row.brandName,
+    unitsSold: toNumber(row.unitsSold),
+    revenue: roundMoney(row.revenue),
+    orderCount: toNumber(row.orderCount),
+  }));
+
+  const byDevice = deviceRows.map((row) => ({
+    deviceLabel: row.deviceLabel,
+    unitsSold: toNumber(row.unitsSold),
+    revenue: roundMoney(row.revenue),
+    orderCount: toNumber(row.orderCount),
+  }));
+
+  return {
+    periodDays: opts.days == null || !Number.isFinite(Number(opts.days)) || Number(opts.days) <= 0
+      ? null
+      : Math.min(Math.max(Math.floor(Number(opts.days)), 1), 3660),
+    totals,
+    topProducts,
+    byBrand,
+    byModel,
+    byDevice,
+  };
+}
+
 module.exports = {
   normalizePage,
   normalizeVisitorId,
@@ -149,4 +347,5 @@ module.exports = {
   getSummary,
   getPageStats,
   getDailyStats,
+  getSalesAnalytics,
 };

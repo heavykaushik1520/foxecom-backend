@@ -4,6 +4,7 @@ const router = express.Router();
 const { isAdmin } = require('../middleware/authMiddleware');
 const {
   getDashboardStats,
+  getRevenueByPeriod,
   getProductsByCategory,
   bulkDeleteProducts,
   getAllUsers,
@@ -13,6 +14,7 @@ const {
 
 // Admin dashboard routes
 router.get('/admin/dashboard/stats', isAdmin, getDashboardStats);
+router.get('/admin/dashboard/revenue', isAdmin, getRevenueByPeriod);
 router.get('/admin/categories/:categoryId/products', isAdmin, getProductsByCategory);
 router.delete('/admin/products/bulk', isAdmin, bulkDeleteProducts);
 router.get('/admin/users', isAdmin, getAllUsers);

@@ -2,6 +2,86 @@
 const { Category, Product, User, Order, Cart, CartItem } = require("../models");
 const { Sequelize, Op } = require("sequelize");
 
+const PAID_STATUS = "paid";
+
+/**
+ * Get start of week (Monday) for a date.
+ */
+function getWeekStart(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  date.setDate(diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+/**
+ * Period key for grouping (day / week / month / year).
+ */
+function getPeriodKey(date, period) {
+  const d = new Date(date);
+  if (period === "daily") return d.toISOString().slice(0, 10); // YYYY-MM-DD
+  if (period === "weekly") return getWeekStart(d).toISOString().slice(0, 10); // week start date
+  if (period === "monthly") return d.toISOString().slice(0, 7); // YYYY-MM
+  if (period === "yearly") return d.toISOString().slice(0, 4); // YYYY
+  return d.toISOString().slice(0, 10);
+}
+
+function sumRevenue(rows) {
+  return Math.round(
+    rows.reduce((acc, r) => acc + parseFloat(r.totalAmount || 0), 0) * 100
+  ) / 100;
+}
+
+function getTodayRange() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getThisWeekRange() {
+  const start = getWeekStart(new Date());
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getThisMonthRange() {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getThisYearRange() {
+  const start = new Date();
+  start.setMonth(0, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function getDefaultDateRange(period) {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  const start = new Date();
+  if (period === "daily") start.setDate(start.getDate() - 30);
+  else if (period === "weekly") start.setDate(start.getDate() - 12 * 7);
+  else if (period === "monthly") start.setMonth(start.getMonth() - 12);
+  else if (period === "yearly") start.setFullYear(start.getFullYear() - 5);
+  else start.setDate(start.getDate() - 30);
+
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
 // Get admin dashboard statistics
 async function getDashboardStats(req, res) {
   try {
@@ -327,8 +407,136 @@ async function getUserOrders(req, res) {
   }
 }
 
+/**
+ * GET /admin/dashboard/revenue?period=daily|weekly|monthly|yearly&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ *
+ * - Buckets revenue for paid orders.
+ * - Returns "today/week/month/year" summaries + "byPeriod" list for selected period/range.
+ */
+async function getRevenueByPeriod(req, res) {
+  try {
+    const period = String(req.query.period || req.query.filter || "daily").toLowerCase();
+    const allowed = ["daily", "weekly", "monthly", "yearly"];
+    if (!allowed.includes(period)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid period. Use daily, weekly, monthly, or yearly.",
+      });
+    }
+
+    const hasStart = Boolean(req.query.startDate);
+    const hasEnd = Boolean(req.query.endDate);
+
+    let { start, end } = getDefaultDateRange(period);
+    if (hasStart || hasEnd) {
+      const parsedStart = hasStart ? new Date(req.query.startDate) : start;
+      const parsedEnd = hasEnd ? new Date(req.query.endDate) : end;
+
+      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid startDate/endDate. Use YYYY-MM-DD.",
+        });
+      }
+
+      start = new Date(parsedStart);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(parsedEnd);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    const [todayOrders, weekOrders, monthOrders, yearOrders, ordersForPeriod] = await Promise.all([
+      (() => {
+        const { start: s, end: e } = getTodayRange();
+        return Order.findAll({
+          where: { status: PAID_STATUS, createdAt: { [Op.gte]: s, [Op.lte]: e } },
+          attributes: ["totalAmount"],
+          raw: true,
+        });
+      })(),
+      (() => {
+        const { start: s, end: e } = getThisWeekRange();
+        return Order.findAll({
+          where: { status: PAID_STATUS, createdAt: { [Op.gte]: s, [Op.lte]: e } },
+          attributes: ["totalAmount"],
+          raw: true,
+        });
+      })(),
+      (() => {
+        const { start: s, end: e } = getThisMonthRange();
+        return Order.findAll({
+          where: { status: PAID_STATUS, createdAt: { [Op.gte]: s, [Op.lte]: e } },
+          attributes: ["totalAmount"],
+          raw: true,
+        });
+      })(),
+      (() => {
+        const { start: s, end: e } = getThisYearRange();
+        return Order.findAll({
+          where: { status: PAID_STATUS, createdAt: { [Op.gte]: s, [Op.lte]: e } },
+          attributes: ["totalAmount"],
+          raw: true,
+        });
+      })(),
+      Order.findAll({
+        where: {
+          status: PAID_STATUS,
+          createdAt: { [Op.gte]: start, [Op.lte]: end },
+        },
+        attributes: ["createdAt", "totalAmount"],
+        raw: true,
+      }),
+    ]);
+
+    const summary = {
+      today: { revenue: sumRevenue(todayOrders), orders: todayOrders.length },
+      week: { revenue: sumRevenue(weekOrders), orders: weekOrders.length },
+      month: { revenue: sumRevenue(monthOrders), orders: monthOrders.length },
+      year: { revenue: sumRevenue(yearOrders), orders: yearOrders.length },
+      range: {
+        totalRevenue: sumRevenue(ordersForPeriod),
+        totalOrders: ordersForPeriod.length,
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+    };
+
+    const byPeriodMap = {};
+    ordersForPeriod.forEach((row) => {
+      const key = getPeriodKey(row.createdAt, period);
+      if (!byPeriodMap[key]) {
+        byPeriodMap[key] = { period: key, revenue: 0, orderCount: 0 };
+      }
+      byPeriodMap[key].revenue += parseFloat(row.totalAmount || 0);
+      byPeriodMap[key].orderCount += 1;
+    });
+
+    const byPeriod = Object.values(byPeriodMap)
+      .map((r) => ({
+        ...r,
+        revenue: Math.round(r.revenue * 100) / 100,
+      }))
+      .sort((a, b) => a.period.localeCompare(b.period));
+
+    return res.status(200).json({
+      success: true,
+      period,
+      summary,
+      byPeriod,
+    });
+  } catch (error) {
+    console.error("Error fetching admin revenue:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch revenue data",
+      error: error.message,
+    });
+  }
+}
+
 module.exports = {
   getDashboardStats,
+  getRevenueByPeriod,
   getProductsByCategory,
   bulkDeleteProducts,
   getAllUsers,

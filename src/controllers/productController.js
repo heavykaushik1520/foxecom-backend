@@ -5,6 +5,29 @@ const { Op, Sequelize } = require("sequelize");
 const { Product, ProductImage, Category, CaseDetails, MobileBrands, MobileModels } = require("../models"); // Import from index.js
 const { sequelize } = require("../config/db");
 const { addCategorySpecificDetails, addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+const {
+    slugifyFromTitle,
+    normalizeSlugInput,
+    ensureUniqueSlug,
+    isNumericProductIdParam,
+} = require("../utils/productSlug");
+
+const productDetailInclude = [
+    { model: ProductImage, as: "images" },
+    { model: Category, as: "category" },
+];
+
+async function findProductForPublicByParam(param) {
+    const trimmed = String(param || "").trim();
+    if (!trimmed) return null;
+    if (isNumericProductIdParam(trimmed)) {
+        return Product.findByPk(parseInt(trimmed, 10), { include: productDetailInclude });
+    }
+    return Product.findOne({
+        where: { slug: trimmed.toLowerCase() },
+        include: productDetailInclude,
+    });
+}
 
 async function createProduct(req, res) {
     try {
@@ -16,7 +39,8 @@ async function createProduct(req, res) {
             discountPrice,
             stock,
             description,
-            sku
+            sku,
+            slug: slugBody,
         } = req.body;
 
         // req.files is now an object: { thumbnailImage: [...], images: [...] }
@@ -61,8 +85,29 @@ async function createProduct(req, res) {
             return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
         }
 
+        let slugValue = null;
+        const slugTrimmed = slugBody != null ? String(slugBody).trim() : "";
+        if (slugTrimmed) {
+            const norm = normalizeSlugInput(slugTrimmed);
+            if (norm && typeof norm === "object" && norm.error) {
+                return res.status(400).json({ message: norm.error });
+            }
+            if (!norm) {
+                return res.status(400).json({ message: "Invalid slug." });
+            }
+            const taken = await Product.findOne({ where: { slug: norm } });
+            if (taken) {
+                return res.status(409).json({ message: "Slug already in use." });
+            }
+            slugValue = norm;
+        } else {
+            const base = slugifyFromTitle(title.trim());
+            slugValue = base ? await ensureUniqueSlug(Product, base, null) : null;
+        }
+
         const productData = {
             title: title.trim(),
+            slug: slugValue,
             categoryId: parseInt(categoryId),
             price: parseFloat(price),
             discountPrice: discountPrice ? parseFloat(discountPrice) : null,
@@ -121,10 +166,7 @@ async function createProduct(req, res) {
         }
 
         const productWithImages = await Product.findByPk(newProduct.id, {
-            include: [
-                { model: ProductImage, as: "images" },
-                { model: Category, as: "category" },
-            ],
+            include: productDetailInclude,
         });
 
         res.status(201).json({
@@ -135,6 +177,9 @@ async function createProduct(req, res) {
     } catch (error) {
         console.error("Unexpected error in createProduct:", error);
         if (error.name === 'SequelizeUniqueConstraintError') {
+            if (error.errors?.some((e) => e.path === "slug")) {
+                return res.status(409).json({ message: "Slug already in use." });
+            }
             return res.status(409).json({ message: "Product with this name already exists in this category." });
         }
         if (error.name === 'SequelizeForeignKeyConstraintError') {
@@ -147,15 +192,9 @@ async function createProduct(req, res) {
 async function getProductById(req, res) {
     try {
         const { id } = req.params;
-        
-        // First fetch product with basic associations
-        const product = await Product.findByPk(id, {
-            include: [
-                { model: ProductImage, as: "images" },
-                { model: Category, as: "category" },
-            ],
-        });
-        
+
+        const product = await findProductForPublicByParam(id);
+
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
@@ -179,7 +218,7 @@ async function updateProduct(req, res) {
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
-        let { imagesToDelete, categoryId, caption, ...productData } = req.body;
+        let { imagesToDelete, categoryId, caption, slug: slugFromBody, ...productData } = req.body;
 
         // Parse imagesToDelete when sent as JSON string (FormData sends all fields as strings)
         if (typeof imagesToDelete === 'string') {
@@ -218,6 +257,32 @@ async function updateProduct(req, res) {
             const updatePayload = { ...productData };
             if (categoryId) updatePayload.categoryId = categoryId;
             if (typeof caption === 'string') updatePayload.caption = caption;
+
+            if (Object.prototype.hasOwnProperty.call(req.body, "slug")) {
+                const slugTrimmed = slugFromBody != null ? String(slugFromBody).trim() : "";
+                if (!slugTrimmed) {
+                    updatePayload.slug = null;
+                } else {
+                    const norm = normalizeSlugInput(slugTrimmed);
+                    if (norm && typeof norm === "object" && norm.error) {
+                        return res.status(400).json({ message: norm.error });
+                    }
+                    if (!norm) {
+                        return res.status(400).json({ message: "Invalid slug." });
+                    }
+                    const idNum = parseInt(id, 10);
+                    const taken = await Product.findOne({
+                        where: {
+                            slug: norm,
+                            id: { [Op.ne]: idNum },
+                        },
+                    });
+                    if (taken) {
+                        return res.status(409).json({ message: "Slug already in use." });
+                    }
+                    updatePayload.slug = norm;
+                }
+            }
 
             // Update thumbnail if provided
             if (thumbnailFile) {
@@ -293,14 +358,14 @@ async function updateProduct(req, res) {
                 return res.status(400).json({ message: "Product must have between 2 and 10 gallery images." });
             }
             const updatedProduct = await Product.findByPk(id, {
-                include: [
-                    { model: ProductImage, as: "images" },
-                    { model: Category, as: "category" },
-                ],
+                include: productDetailInclude,
             });
             return res.status(200).json(updatedProduct);
         } catch (error) {
             console.error(`Error updating product with ID ${id}:`, error);
+            if (error.name === "SequelizeUniqueConstraintError" && error.errors?.some((e) => e.path === "slug")) {
+                return res.status(409).json({ message: "Slug already in use." });
+            }
             res.status(500).json({ message: "Failed to update product", error: error.message });
         }
     } catch (error) {
@@ -914,7 +979,8 @@ async function getAllProductsForAdmin(req, res) {
         if (search) {
             where[Op.or] = [
                 { title: { [Op.like]: `%${search}%` } },
-                { sku: { [Op.like]: `%${search}%` } }
+                { sku: { [Op.like]: `%${search}%` } },
+                { slug: { [Op.like]: `%${search}%` } },
             ];
         }
         

@@ -2,6 +2,7 @@
 
 const { Category, Product } = require("../models");
 const { Op } = require("sequelize");
+const { slugifyFromTitle, normalizeSlugInput, isNumericProductIdParam } = require("../utils/productSlug");
 
 // Helper to validate string input
 const isValidString = (str) => str && typeof str === "string" && str.trim().length > 0;
@@ -15,12 +16,23 @@ async function createCategory(req, res) {
       return res.status(400).json({ message: "Category name is required and must be a non-empty string." });
     }
 
-    if (!isValidString(slug)) {
-      return res.status(400).json({ message: "Category slug is required and must be a non-empty string." });
-    }
-    
     const trimmedName = name.trim();
-    const trimmedSlug = slug.trim();
+    // Allow slug omission/empty -> auto-generate from name
+    let normalizedSlug = null;
+    if (isValidString(slug)) {
+      const norm = normalizeSlugInput(slug);
+      if (norm && typeof norm === "object" && norm.error) {
+        return res.status(400).json({ message: norm.error });
+      }
+      normalizedSlug = norm;
+    } else {
+      normalizedSlug = slugifyFromTitle(trimmedName);
+      const norm2 = normalizedSlug ? normalizeSlugInput(normalizedSlug) : null;
+      normalizedSlug = norm2;
+    }
+    if (!normalizedSlug) {
+      return res.status(400).json({ message: "Category slug is invalid or could not be generated." });
+    }
 
     // Check if category with same name already exists
     const existingCategory = await Category.findOne({ where: { name: trimmedName } });
@@ -29,12 +41,12 @@ async function createCategory(req, res) {
     }
     
     // Check if category with same slug already exists (optional but recommended for robust URLs)
-    const existingSlug = await Category.findOne({ where: { slug: trimmedSlug } });
+    const existingSlug = await Category.findOne({ where: { slug: normalizedSlug } });
     if (existingSlug) {
         return res.status(409).json({ message: "Category with this slug already exists." });
     }
     
-    const newCategory = await Category.create({ name: trimmedName, slug: trimmedSlug });
+    const newCategory = await Category.create({ name: trimmedName, slug: normalizedSlug });
     res.status(201).json({
       success: true,
       message: "Category created successfully",
@@ -99,12 +111,17 @@ async function getAllCategories(req, res) {
 async function getCategoryById(req, res) {
   const { id } = req.params;
   try {
-    const category = await Category.findByPk(id, {
-      include: {
-        model: Product,
-        as: "products",
-      },
-    });
+    const includeProducts = {
+      model: Product,
+      as: "products",
+    };
+
+    const category = isNumericProductIdParam(id)
+      ? await Category.findByPk(parseInt(id, 10), { include: includeProducts })
+      : await Category.findOne({
+          where: { slug: String(id || "").trim().toLowerCase() },
+          include: includeProducts,
+        });
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found" });
     }
@@ -150,13 +167,36 @@ async function updateCategory(req, res) {
 
     // Validate and prepare slug update
     if (slug !== undefined) {
+        // If admin cleared slug and also changed name, auto-generate; otherwise require slug.
         if (!isValidString(slug)) {
+          if (!updates.name) {
             return res.status(400).json({ message: "Category slug must be a non-empty string." });
+          }
+          const generated = slugifyFromTitle(updates.name);
+          const norm2 = generated ? normalizeSlugInput(generated) : null;
+          updates.slug = norm2;
+        } else {
+          const norm = normalizeSlugInput(slug);
+          if (norm && typeof norm === "object" && norm.error) {
+            return res.status(400).json({ message: norm.error });
+          }
+          updates.slug = norm;
         }
-        updates.slug = slug.trim();
 
-        // Check uniqueness for slug could be added here if assumed unique, 
-        // usually good practice for SEO friendly URLs
+        if (!updates.slug) {
+          return res.status(400).json({ message: "Category slug is invalid." });
+        }
+
+        const duplicateSlug = await Category.findOne({
+          where: {
+            slug: updates.slug,
+            id: { [Op.ne]: id },
+          },
+        });
+
+        if (duplicateSlug) {
+          return res.status(409).json({ message: "Category with this slug already exists." });
+        }
     }
 
     if (Object.keys(updates).length === 0) {

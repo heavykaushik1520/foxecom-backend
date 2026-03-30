@@ -67,9 +67,27 @@ async function getDailyStats(req, res) {
   }
 }
 
+async function getSalesAnalytics(req, res) {
+  try {
+    const rawDays = req.query.days;
+    let days = null;
+    if (rawDays !== undefined && rawDays !== null && rawDays !== '' && String(rawDays).toLowerCase() !== 'all') {
+      const n = parseInt(rawDays, 10);
+      if (Number.isFinite(n) && n > 0) days = n;
+    }
+    const limit = req.query.limit;
+    const data = await analyticsService.getSalesAnalytics({ days, limit });
+    return res.json(data);
+  } catch (err) {
+    console.error('analytics getSalesAnalytics:', err);
+    return res.status(500).json({ message: 'Failed to load sales analytics' });
+  }
+}
+
 module.exports = {
   recordVisit,
   getSummary,
   getPageStats,
   getDailyStats,
+  getSalesAnalytics,
 };
