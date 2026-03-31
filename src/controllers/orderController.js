@@ -20,6 +20,9 @@ const {
 } = require("../services/delhivery/delhiveryApi");
 const { createInvoicePdf } = require("../utils/invoiceGenerator");
 const { buildOrderNumber } = require("../utils/orderNumberHelper");
+const {
+  createReviewRemindersForDeliveredOrder,
+} = require("../services/reviewReminderService");
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -667,7 +670,7 @@ async function trackOrderStatus(req, res) {
 
       if (result.success) {
         const patch = {};
-        // Track delivery via carrier's shipmentStatus transition.
+
         const wasDeliveredTransition =
           result.status === "delivered" && order.shipmentStatus !== "delivered";
 
@@ -676,8 +679,41 @@ async function trackOrderStatus(req, res) {
         }
 
         if (wasDeliveredTransition) {
-          // For now, we use `paid` as the state that unlocks review/reminder flow.
-          patch.status = "paid";
+          patch.status = "delivered";
+
+          if (Object.keys(patch).length) {
+            await order.update(patch);
+          }
+
+          try {
+            await createReviewRemindersForDeliveredOrder({
+              orderId: order.id,
+              deliveredAt: new Date(),
+            });
+            console.log(
+              "[ReviewReminder] Created reminders for order",
+              order.id,
+            );
+          } catch (e) {
+            console.error(
+              "[ReviewReminder] Failed to create reminders",
+              e.message,
+            );
+          }
+
+          // ✅ Response return করো
+          return res.status(200).json({
+            message: "Tracking fetched successfully.",
+            orderId: order.id,
+            orderStatus: "delivered",
+            shipmentStatus: result.status,
+            awb,
+            tracking: result.raw,
+            scans: result.scans,
+            statusCode: result.statusCode,
+            statusLocation: result.statusLocation,
+            statusDateTime: result.statusDateTime,
+          });
         } else if (
           [
             "manifested",
@@ -796,6 +832,7 @@ async function getOrderInvoicePdf(req, res) {
       typeof order.toJSON === "function" ? order.toJSON() : order;
     const pdfBuffer = await createInvoicePdf(plainOrder, plainOrder.orderItems);
 
+    // const displayId = plainOrder.orderNumber || plainOrder.id;
     const firstSku = plainOrder.orderItems?.[0]?.product?.sku ?? null;
     const displayId =
       plainOrder.orderNumber ||
@@ -881,11 +918,15 @@ async function downloadOrderShippingLabel(req, res) {
     }
 
     if (!order.awbCode) {
-      return res.status(400).json({ message: "No shipment AWB for this order." });
+      return res
+        .status(400)
+        .json({ message: "No shipment AWB for this order." });
     }
 
     if (!getDelhiveryConfig().isConfigured) {
-      return res.status(503).json({ message: "Shipping label service not configured." });
+      return res
+        .status(503)
+        .json({ message: "Shipping label service not configured." });
     }
 
     const result = await delhiveryGetLabel(order.awbCode);

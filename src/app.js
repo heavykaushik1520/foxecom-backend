@@ -47,6 +47,8 @@ const adminReviewRoutes = require('./routes/adminReviewRoutes');
 const customerReviewRoutes = require('./routes/customerReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const visitorRoutes = require('./routes/visitorRoutes');
+const adminVisitorRoutes = require('./routes/adminVisitorRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -213,6 +215,10 @@ app.use("/api", metaProductFeedRoutes);
 
 // Website analytics (public POST visit; admin-only read endpoints)
 app.use('/api', analyticsRoutes);
+
+// Live visitor sessions (public heartbeat; admin-only read)
+app.use('/api', visitorRoutes);
+app.use('/api/admin', adminVisitorRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {

@@ -21,6 +21,7 @@ const FoxcomOriginals = require('./foxcomOriginals');
 const FoxcomOriginalsProduct = require('./foxcomOriginalsProduct');
 const CustomerReview = require('./customerReview');
 const ReviewReminder = require("./reviewReminder");
+const VisitorSession = require("./visitorSession");
 
 const models = {
   Admin,
@@ -46,6 +47,7 @@ const models = {
   FoxcomOriginalsProduct,
   CustomerReview,
   ReviewReminder,
+  VisitorSession,
 };
 
 // Apply associations

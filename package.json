@@ -7,7 +7,8 @@
     "dev": "nodemon src/app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "migrate:delhivery": "node scripts/run-delhivery-migration.js",
-    "migrate:shipping": "node scripts/run-all-shipping-migration.js"
+    "migrate:shipping": "node scripts/run-all-shipping-migration.js",
+    "migrate:visitor-sessions": "node scripts/run-visitor-sessions-migration.js"
   },
   "keywords": [],
   "author": "",
@@ -26,12 +27,13 @@
     "sequelize": "^6.37.7"
   },
   "dependencies": {
-    "mysql2": "^3.14.1",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
+    "exceljs": "^4.4.0",
     "express-session": "^1.19.0",
     "image-size": "^2.0.2",
     "multer": "^2.0.1",
+    "mysql2": "^3.14.1",
     "node-fetch": "^2.7.0",
     "nodemailer": "^7.0.3",
     "passport": "^0.7.0",

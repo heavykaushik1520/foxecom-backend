@@ -7,11 +7,13 @@ const {
   getAllOrdersForAdmin, 
   getOrderById, 
   updateOrderStatus,
-  getOrdersWithFilters 
+  getOrdersWithFilters,
+  exportGstMonthlyExcel,
 } = require('../controllers/adminOrderController');
 
 router.get('/orders', isAdmin, getAllOrdersForAdmin);
 router.get('/orders/filter', isAdmin, getOrdersWithFilters);
+router.get('/orders/gst-export', isAdmin, exportGstMonthlyExcel);
 router.get("/orders/:id", isAdmin, getOrderById);
 router.put("/orders/:id/status", isAdmin, updateOrderStatus);
 
