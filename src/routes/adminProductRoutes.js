@@ -8,9 +8,11 @@ const {
   deleteProduct,
   getAllProductsForAdmin,
   getProductById,
+  regenerateSitemap,
 } = require('../controllers/productController');
 
 // Admin-only product management routes
+router.get('/admin/regenerate-sitemap', isAdmin, regenerateSitemap);
 router.get('/admin/products', isAdmin, getAllProductsForAdmin);
 router.get('/admin/products/:id', isAdmin, getProductById);
 router.post('/admin/products', isAdmin, createProduct);

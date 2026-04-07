@@ -88,7 +88,11 @@ Product.associate = (models) => {
 
   Product.hasOne(models.CaseDetails, {
     foreignKey: "productId",
-    as: "details"
+    as: "details",
+  });
+  Product.hasOne(models.CaseDetails, {
+    foreignKey: "productId",
+    as: "caseDetails",
   });
   Product.hasMany(models.Review, {
     foreignKey: "productId",
@@ -98,6 +102,11 @@ Product.associate = (models) => {
   Product.hasOne(models.ProductRatingSummary, {
     foreignKey: "productId",
     as: "ratingSummary",
+  });
+  Product.hasMany(models.SellerReview, {
+    foreignKey: "productId",
+    as: "sellerReviews",
+    onDelete: "CASCADE",
   });
 };
 

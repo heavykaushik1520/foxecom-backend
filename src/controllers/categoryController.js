@@ -3,9 +3,18 @@
 const { Category, Product } = require("../models");
 const { Op } = require("sequelize");
 const { slugifyFromTitle, normalizeSlugInput, isNumericProductIdParam } = require("../utils/productSlug");
+const { generateSitemap } = require("../utils/generateSitemap");
 
 // Helper to validate string input
 const isValidString = (str) => str && typeof str === "string" && str.trim().length > 0;
+
+async function refreshSitemapSafe(context) {
+  try {
+    await generateSitemap();
+  } catch (err) {
+    console.error(`Sitemap refresh failed (${context}):`, err?.message || err);
+  }
+}
 
 async function createCategory(req, res) {
   try {
@@ -47,6 +56,9 @@ async function createCategory(req, res) {
     }
     
     const newCategory = await Category.create({ name: trimmedName, slug: normalizedSlug });
+
+    await refreshSitemapSafe("createCategory");
+
     res.status(201).json({
       success: true,
       message: "Category created successfully",
@@ -110,17 +122,25 @@ async function getAllCategories(req, res) {
 // Get a single category by ID
 async function getCategoryById(req, res) {
   const { id } = req.params;
+  const includeProductsRaw = req.query.includeProducts;
+  const includeProducts =
+    includeProductsRaw === undefined ||
+    includeProductsRaw === "" ||
+    includeProductsRaw === "true" ||
+    includeProductsRaw === true;
   try {
-    const includeProducts = {
+    const productInclude = {
       model: Product,
       as: "products",
     };
 
+    const findOptions = includeProducts ? { include: productInclude } : {};
+
     const category = isNumericProductIdParam(id)
-      ? await Category.findByPk(parseInt(id, 10), { include: includeProducts })
+      ? await Category.findByPk(parseInt(id, 10), findOptions)
       : await Category.findOne({
           where: { slug: String(id || "").trim().toLowerCase() },
-          include: includeProducts,
+          ...findOptions,
         });
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found" });
@@ -205,6 +225,8 @@ async function updateCategory(req, res) {
     
     await existingCategory.update(updates);
     
+    await refreshSitemapSafe("updateCategory");
+
     // Reload to get associations if needed, or just return updated instance
     const updatedCategory = await Category.findByPk(id, {
         include: { model: Product, as: "products" }
@@ -255,6 +277,8 @@ async function deleteCategory(req, res) {
     };
     
     await category.destroy();
+
+    await refreshSitemapSafe("deleteCategory");
 
     return res.status(200).json({ 
       success: true,
@@ -314,6 +338,8 @@ async function bulkDeleteCategories(req, res) {
     const deletedCount = await Category.destroy({
       where: { id: categoryIds }
     });
+
+    await refreshSitemapSafe("bulkDeleteCategories");
 
     res.status(200).json({
       success: true,

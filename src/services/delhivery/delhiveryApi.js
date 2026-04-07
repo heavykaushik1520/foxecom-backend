@@ -519,21 +519,46 @@ async function cancelShipment(waybill) {
     return { success: false, error: "Delhivery not configured" };
   }
 
-  const params = new URLSearchParams({ waybill, cancellation: "true" });
-  const url = `${baseUrl}/api/p/edit?${params.toString()}`;
+  if (!waybill || typeof waybill !== "string" || !waybill.trim()) {
+    return { success: false, error: "Invalid waybill number" };
+  }
+
+  const url = `${baseUrl}/api/p/edit`;
+
   const res = await delhiveryRequest(url, {
     method: "POST",
-    headers: authHeaders(),
+    headers: {
+      ...authHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      waybill: waybill.trim(),
+      cancellation: "true",
+    }),
   });
 
   if (!res.ok) {
-    log("error", "Shipment cancellation failed", { waybill, error: res.error });
-    return {
-      success: false,
-      error: res.error || "Shipment cancellation failed",
-    };
+    log("error", "Shipment cancellation failed", {
+      waybill,
+      status: res.status,
+      error: res.error,
+    });
+    return { success: false, error: res.error || "Shipment cancellation failed" };
   }
 
+  const data = res.data;
+  if (data && data.success === false) {
+    const errMsg =
+      data.rmks ||
+      data.remarks ||
+      data.message ||
+      data.error ||
+      "Cancellation rejected by Delhivery";
+    log("error", "Shipment cancellation rejected", { waybill, response: data });
+    return { success: false, error: String(errMsg) };
+  }
+
+  log("info", "Shipment cancellation successful", { waybill });
   return { success: true };
 }
 

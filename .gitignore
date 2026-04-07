@@ -41,3 +41,6 @@ yarn.lock
 # TypeScript output
 /out
 /lib
+
+# Sensitive credentials
+secure/foxecom-merchant-api.jsonsecure/foxecom-merchant-api.json

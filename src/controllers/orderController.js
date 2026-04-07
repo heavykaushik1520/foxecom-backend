@@ -1,3 +1,21 @@
+// Add these 4 imports at the top of orderController.js
+const {
+  resolveDeliveryStage,
+  buildStageTimeline,
+} = require("../utils/deliveryStageHelper");
+const {
+  evaluateCancellationPolicy,
+  getCancelReasonCode,
+  getCancellationWindowRemaining,
+} = require("../utils/cancellationPolicyHelper");
+const { calculatePartialRefund } = require("../utils/refundCalculator");
+const { sendCancellationEmails } = require("../utils/sendCancellationEmails");
+const {
+  cancelShipment,
+  trackShipment: delhiveryTrack,
+  getDelhiveryConfig,
+  getLabel: delhiveryGetLabel,
+} = require("../services/delhivery/delhiveryApi");
 const fetch = require("node-fetch");
 const {
   Order,
@@ -12,17 +30,13 @@ const {
   getPaidOrderCount,
   getUpiDiscountPercent,
 } = require("../utils/upiDiscountHelper");
-const { getShiprocketToken } = require("../utils/getShiprocketToken");
-const {
-  trackShipment: delhiveryTrack,
-  getDelhiveryConfig,
-  getLabel: delhiveryGetLabel,
-} = require("../services/delhivery/delhiveryApi");
 const { createInvoicePdf } = require("../utils/invoiceGenerator");
 const { buildOrderNumber } = require("../utils/orderNumberHelper");
 const {
   createReviewRemindersForDeliveredOrder,
 } = require("../services/reviewReminderService");
+
+const { safeStatusUpdate } = require("../utils/orderStatusHelper");
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -416,6 +430,12 @@ async function getMyOrders(req, res) {
         "shippingLabelUrl",
         "createdAt",
         "updatedAt",
+        "cancelledAt",
+        "refundType",
+        "refundAmount",
+        "refundGstDeducted",
+        "refundCourierDeducted",
+        "cancelReason",
       ],
       include: [
         {
@@ -505,6 +525,12 @@ async function getOrderById(req, res) {
         "shippingLabelUrl",
         "createdAt",
         "updatedAt",
+        "cancelledAt",
+        "refundType",
+        "refundAmount",
+        "refundGstDeducted",
+        "refundCourierDeducted",
+        "cancelReason",
       ],
       include: [
         {
@@ -581,37 +607,7 @@ async function cancelOrder(req, res) {
       return res.status(400).json({ message: "Invalid or missing order id." });
     }
 
-    const order = await Order.findOne({
-      where: { id, userId },
-      attributes: [
-        "id",
-        "userId",
-        "totalAmount",
-        "subtotal",
-        "discountAmount",
-        "upiDiscountPercent",
-        "preferredPaymentMethod",
-        "orderNumberForUser",
-        "firstName",
-        "lastName",
-        "mobileNumber",
-        "emailAddress",
-        "fullAddress",
-        "townOrCity",
-        "country",
-        "state",
-        "pinCode",
-        "status",
-        "payuTxnId",
-        "payuPaymentId",
-        "paymentMode",
-        "bankRefNo",
-        "payuStatus",
-        "payuError",
-        "createdAt",
-        "updatedAt",
-      ],
-    });
+    const order = await Order.findOne({ where: { id, userId } });
 
     if (!order) {
       return res
@@ -619,33 +615,115 @@ async function cancelOrder(req, res) {
         .json({ message: "Order not found or does not belong to you." });
     }
 
-    // Only allow cancellation of pending orders
-    if (order.status !== "pending") {
+    // ── Evaluate policy — all business rules in one call ──────────────────
+    const policy = evaluateCancellationPolicy(order);
+
+    if (!policy.canCancel) {
       return res.status(400).json({
-        message: `Cannot cancel order with status: ${order.status}. Only pending orders can be cancelled.`,
+        message: policy.reason,
+        orderStatus: order.status,
+        shipmentStatus: order.shipmentStatus,
       });
     }
 
-    // Update order status to cancelled
-    await order.update({ status: "cancelled" });
+    // ── Rule 3: compute partial refund suggestion ──────────────────────────
+    const refund =
+      policy.refundType === "partial"
+        ? calculatePartialRefund(order.totalAmount)
+        : null;
 
-    res.status(200).json({
+    // ── Rule 2: call Delhivery to void the AWB ────────────────────────────
+    let delhiveryCancelled = false;
+    let delhiveryError = null;
+
+    if (policy.isDelhiveryCancellable && getDelhiveryConfig().isConfigured) {
+      try {
+        const result = await cancelShipment(order.awbCode);
+        delhiveryCancelled = result.success;
+        if (!result.success) {
+          // Log for ops team — do NOT block customer cancellation
+          delhiveryError = result.error;
+          console.error(
+            "[cancelOrder] Delhivery cancel API failed — manual action required",
+            {
+              orderId: order.id,
+              awb: order.awbCode,
+              error: result.error,
+            },
+          );
+        }
+      } catch (err) {
+        delhiveryError = err.message;
+        console.error("[cancelOrder] Delhivery cancel threw exception", {
+          orderId: order.id,
+          awb: order.awbCode,
+          error: err.message,
+        });
+      }
+    }
+
+    // ── Persist cancellation to DB ─────────────────────────────────────────
+    const updatePayload = {
+      status: "cancelled",
+      cancelledAt: new Date(),
+      cancelReason: getCancelReasonCode(policy.rule),
+      refundType: policy.refundType,
+      shipmentStatus: order.awbCode ? "cancelled" : order.shipmentStatus,
+      ...(refund && {
+        refundAmount: refund.refundAmount,
+        refundGstDeducted: refund.gstDeducted,
+        refundCourierDeducted: refund.courierDeducted,
+      }),
+    };
+
+    await order.update(updatePayload);
+
+    // ── Send emails non-blocking ───────────────────────────────────────────
+    setImmediate(async () => {
+      try {
+        const plainOrder =
+          typeof order.toJSON === "function" ? order.toJSON() : { ...order };
+        await sendCancellationEmails(plainOrder, policy, refund);
+      } catch (err) {
+        console.error("[cancelOrder] Email send failed:", err.message);
+      }
+    });
+
+    // ── Response ───────────────────────────────────────────────────────────
+    return res.status(200).json({
+      success: true,
       message: "Order cancelled successfully.",
-      order: {
-        id: order.id,
-        status: order.status,
-        cancelledAt: new Date(),
+      cancellation: {
+        orderId: order.id,
+        orderRef: order.orderNumber || `#${order.id}`,
+        rule: policy.rule,
+        refundType: policy.refundType,
+        ...(refund && {
+          estimatedRefund: refund.refundAmount,
+          deductions: {
+            gst: refund.gstDeducted,
+            courier: refund.courierDeducted,
+            total: refund.totalDeducted,
+          },
+          note: "Final refund amount subject to admin review within 2 business days.",
+        }),
+        ...(policy.rule === "2" && {
+          delhiveryCancelled,
+          ...(delhiveryError && {
+            adminNote:
+              "Delhivery AWB cancellation API failed — please cancel manually in Delhivery panel.",
+          }),
+        }),
       },
     });
   } catch (error) {
-    console.error("Error cancelling order:", error);
+    console.error("[cancelOrder] Error:", error);
     res
       .status(500)
       .json({ message: "Failed to cancel order.", error: error.message });
   }
 }
 
-//created on 12-06
 async function trackOrderStatus(req, res) {
   const userId = req.user?.userId;
   const { orderId } = req.params;
@@ -655,114 +733,107 @@ async function trackOrderStatus(req, res) {
       return res.status(400).json({ message: "Invalid or missing order ID." });
     }
 
-    const order = await Order.findOne({
-      where: { id: orderId, userId },
-    });
+    const order = await Order.findOne({ where: { id: orderId, userId } });
 
     if (!order) {
       return res.status(404).json({ message: "Order not found." });
     }
 
-    const awb = order.awbCode;
-
-    if (getDelhiveryConfig().isConfigured && awb) {
-      const result = await delhiveryTrack(awb);
-
-      if (result.success) {
-        const patch = {};
-
-        const wasDeliveredTransition =
-          result.status === "delivered" && order.shipmentStatus !== "delivered";
-
-        if (result.status && result.status !== order.shipmentStatus) {
-          patch.shipmentStatus = result.status;
-        }
-
-        if (wasDeliveredTransition) {
-          patch.status = "delivered";
-
-          if (Object.keys(patch).length) {
-            await order.update(patch);
-          }
-
-          try {
-            await createReviewRemindersForDeliveredOrder({
-              orderId: order.id,
-              deliveredAt: new Date(),
-            });
-            console.log(
-              "[ReviewReminder] Created reminders for order",
-              order.id,
-            );
-          } catch (e) {
-            console.error(
-              "[ReviewReminder] Failed to create reminders",
-              e.message,
-            );
-          }
-
-          // ✅ Response return করো
-          return res.status(200).json({
-            message: "Tracking fetched successfully.",
-            orderId: order.id,
-            orderStatus: "delivered",
-            shipmentStatus: result.status,
-            awb,
-            tracking: result.raw,
-            scans: result.scans,
-            statusCode: result.statusCode,
-            statusLocation: result.statusLocation,
-            statusDateTime: result.statusDateTime,
-          });
-        } else if (
-          [
-            "manifested",
-            "picked_up",
-            "in_transit",
-            "out_for_delivery",
-          ].includes(result.status) &&
-          order.shipmentStatus !== "delivered" &&
-          !["cancelled"].includes(order.status)
-        ) {
-          patch.status = "shipped";
-        }
-
-        if (Object.keys(patch).length) {
-          await order.update(patch);
-        }
-
-        return res.status(200).json({
-          message: "Tracking fetched successfully.",
-          orderId: order.id,
-          orderStatus: patch.status || order.status,
-          shipmentStatus: result.status,
-          awb,
-          tracking: result.raw,
-          scans: result.scans,
-          statusCode: result.statusCode,
-          statusLocation: result.statusLocation,
-          statusDateTime: result.statusDateTime,
-        });
-      }
+    // ── Pull live tracking from Delhivery ──────────────────────────────────
+    let trackingResult = null;
+    if (getDelhiveryConfig().isConfigured && order.awbCode) {
+      trackingResult = await delhiveryTrack(order.awbCode);
     }
 
+    // ── Resolve stage ──────────────────────────────────────────────────────
+    const rawStatus = trackingResult?.success
+      ? trackingResult.status
+      : order.shipmentStatus;
+    const stage = resolveDeliveryStage(rawStatus, order);
+    const timeline = buildStageTimeline(stage.code);
+
+    // ── Sync order status in DB if changed ────────────────────────────────
+    if (trackingResult?.success) {
+      const patch = {};
+      const wasDelivered =
+        stage.code === "delivered" && order.shipmentStatus !== "delivered";
+
+      if (rawStatus && rawStatus !== order.shipmentStatus) {
+        patch.shipmentStatus = rawStatus;
+      }
+
+      if (wasDelivered) {
+        patch.status = "delivered";
+        if (Object.keys(patch).length) await order.update(patch);
+
+        try {
+          await createReviewRemindersForDeliveredOrder({
+            orderId: order.id,
+            deliveredAt: new Date(),
+          });
+        } catch (e) {
+          console.error("[ReviewReminder] Failed:", e.message);
+        }
+      } else {
+        // Only sync shipmentStatus — never overwrite order.status automatically
+        // Admin manual status changes must never be overwritten by tracking sync
+        if (Object.keys(patch).length) {
+          await order.update(patch); // patch only has shipmentStatus here
+        }
+        // Safely attempt shipped transition — skipped if already delivered/cancelled
+        await safeStatusUpdate(order, "shipped");
+      }
+
+      await order.reload();
+    }
+
+    const cancellationPolicy = evaluateCancellationPolicy(order);
+
+    // ── Cancellation window info (for frontend "cancel" button logic) ──────
+    const windowRemaining =
+      order.status !== "cancelled" && order.status !== "delivered"
+        ? getCancellationWindowRemaining(order.createdAt)
+        : null;
+
     return res.status(200).json({
-      message: order.awbCode
-        ? "Tracking not available yet. Please check back later."
-        : "Shipment not yet created for this order.",
+      success: true,
       orderId: order.id,
-      status: order.status,
-      shipmentStatus: order.shipmentStatus,
-      tracking: null,
+      orderStatus: order.status,
+      awb: order.awbCode || null,
+
+      // Current stage (rich object)
+      stage: {
+        code: stage.code,
+        label: stage.label,
+        description: stage.description,
+        step: stage.step,
+        // Frontend should follow the same business rules as `cancelOrder`.
+        isCancellable: cancellationPolicy.canCancel,
+        refundType: cancellationPolicy.refundType,
+        cancelRule: cancellationPolicy.rule,
+      },
+
+      // Full timeline for progress bar
+      timeline,
+
+      // Delhivery raw data (for detailed scan history)
+      scans: trackingResult?.scans || [],
+      statusCode: trackingResult?.statusCode || null,
+      statusLocation: trackingResult?.statusLocation || null,
+      statusDateTime: trackingResult?.statusDateTime || null,
+      tracking: trackingResult?.raw || null,
+
+      // Cancellation window (use on frontend to show/hide cancel button)
+      cancellationWindow: windowRemaining,
     });
   } catch (err) {
-    console.error("Tracking error:", err.message);
-    res.status(500).json({
-      message: "Failed to fetch tracking information.",
-      error: err.message,
-    });
+    console.error("[trackOrderStatus] Error:", err.message);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch tracking.", error: err.message });
   }
 }
+
 
 async function getOrderInvoicePdf(req, res) {
   try {

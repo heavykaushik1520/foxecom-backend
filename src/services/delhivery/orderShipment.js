@@ -11,6 +11,8 @@ const {
 } = require("./delhiveryApi");
 
 const { getDelhiveryPaymentMode } = require("./paymentModeHelper");
+const { safeStatusUpdate } = require("../../utils/orderStatusHelper");
+
 
 const LOG_PREFIX = "[Delhivery OrderShipment]";
 
@@ -132,10 +134,8 @@ async function createOrderShipment(order, options = {}) {
       shippingLabelUrl: null, // never store tokenized external URL
       shipmentStatus: "manifested",
       courierName: "delhivery",
-      status: ["paid", "pending"].includes(order.status)
-        ? "processing"
-        : order.status,
     });
+    await safeStatusUpdate(order, "processing");
   }
 
   return {

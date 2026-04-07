@@ -11,6 +11,7 @@ const {
     ensureUniqueSlug,
     isNumericProductIdParam,
 } = require("../utils/productSlug");
+const { generateSitemap } = require("../utils/generateSitemap");
 
 const productDetailInclude = [
     { model: ProductImage, as: "images" },
@@ -168,6 +169,12 @@ async function createProduct(req, res) {
         const productWithImages = await Product.findByPk(newProduct.id, {
             include: productDetailInclude,
         });
+
+        try {
+            await generateSitemap();
+        } catch (err) {
+            console.error("Sitemap regeneration failed:", err.message);
+        }
 
         res.status(201).json({
             message: "Product created successfully",
@@ -360,6 +367,11 @@ async function updateProduct(req, res) {
             const updatedProduct = await Product.findByPk(id, {
                 include: productDetailInclude,
             });
+            try {
+                await generateSitemap();
+            } catch (err) {
+                console.error("Sitemap regeneration failed:", err.message);
+            }
             return res.status(200).json(updatedProduct);
         } catch (error) {
             console.error(`Error updating product with ID ${id}:`, error);
@@ -396,6 +408,11 @@ async function deleteProduct(req, res) {
         });
 
         if (deletedRows > 0) {
+            try {
+                await generateSitemap();
+            } catch (err) {
+                console.error("Sitemap regeneration failed:", err.message);
+            }
             return res.status(200).json({
                 message: "Product deleted successfully",
                 deletedProduct: {
@@ -1055,6 +1072,23 @@ async function getAllProductsForAdmin(req, res) {
     }
 }
 
+async function regenerateSitemap(req, res) {
+    try {
+        await generateSitemap();
+        return res.status(200).json({
+            success: true,
+            message: "Sitemap regenerated successfully.",
+        });
+    } catch (err) {
+        console.error("Manual sitemap regeneration failed:", err.message);
+        return res.status(500).json({
+            success: false,
+            message: "Sitemap regeneration failed.",
+            error: err.message,
+        });
+    }
+}
+
 module.exports = {
     createProduct,
     getAllProducts,
@@ -1065,6 +1099,7 @@ module.exports = {
     filterAndSortProducts,
     getFilterOptions,
     getAllProductsForAdmin,
+    regenerateSitemap,
     // Legacy filter route - redirects to new function
     filterProducts: filterAndSortProducts,
 };

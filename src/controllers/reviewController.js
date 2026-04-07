@@ -1,4 +1,4 @@
-const { Review, ProductRatingSummary, CustomerReview, User } = require("../models");
+const { Review, ProductRatingSummary, CustomerReview, User, Product, SellerReview } = require("../models");
 
 function maskEmail(email) {
   const value = String(email || "").trim();
@@ -137,6 +137,49 @@ async function getReviewsByProduct(req, res) {
   }
 }
 
+/**
+ * Public: curated seller reviews for a product (no auth).
+ * GET /products/:productId/seller-reviews
+ */
+async function getPublicSellerReviewsByProduct(req, res) {
+  try {
+    const productIdNum = parseInt(req.params.productId, 10);
+    if (!productIdNum) {
+      return res.status(400).json({ message: "Invalid product id." });
+    }
+
+    const product = await Product.findByPk(productIdNum, { attributes: ["id"] });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    const rows = await SellerReview.findAll({
+      where: { productId: productIdNum },
+      attributes: ["id", "name", "rating", "message", "images", "reviewDate", "createdAt"],
+      order: [
+        ["reviewDate", "DESC"],
+        ["createdAt", "DESC"],
+      ],
+    });
+
+    const sellerReviews = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      rating: r.rating,
+      message: r.message,
+      images: Array.isArray(r.images) ? r.images : [],
+      reviewDate: r.reviewDate != null ? String(r.reviewDate).slice(0, 10) : null,
+      createdAt: r.createdAt,
+    }));
+
+    return res.json({ sellerReviews });
+  } catch (error) {
+    console.error("Error fetching seller reviews:", error);
+    return res.status(500).json({ message: "Failed to fetch seller reviews." });
+  }
+}
+
 module.exports = {
   getReviewsByProduct,
+  getPublicSellerReviewsByProduct,
 };

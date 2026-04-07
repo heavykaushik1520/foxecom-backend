@@ -42,8 +42,10 @@ const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
 const foxcomOriginalsRoutes = require('./routes/foxcomOriginalsRoutes');
 const googleAuthRoutes = require('./routes/googleAuthRoutes');
 const metaProductFeedRoutes = require("./routes/metaProductFeedRoutes");
+const googleMerchantRoutes = require("./routes/googleMerchantRoutes");
 
 const adminReviewRoutes = require('./routes/adminReviewRoutes');
+const adminSellerReviewRoutes = require('./routes/adminSellerReviewRoutes');
 const customerReviewRoutes = require('./routes/customerReviewRoutes');
 const superadminRoutes = require('./routes/superadminRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
@@ -190,6 +192,7 @@ app.use('/api', mobileModelsRoutes);
 app.use('/api', caseDetailsRoutes);
 app.use('/api', reviewRoutes);
 app.use('/api', adminReviewRoutes);
+app.use('/api', adminSellerReviewRoutes);
 app.use('/api', customerReviewRoutes);
 
 // Contact form route
@@ -212,6 +215,9 @@ app.use("/api", foxcomOriginalsRoutes);
 
 // Meta Product Catalog CSV feed
 app.use("/api", metaProductFeedRoutes);
+
+// Google Merchant Center — preview payload only (no Merchant API)
+app.use("/api", googleMerchantRoutes);
 
 // Website analytics (public POST visit; admin-only read endpoints)
 app.use('/api', analyticsRoutes);
