@@ -1,7 +1,7 @@
 const fs = require("fs").promises;
 const path = require("path");
 const { Op } = require("sequelize");
-const { Product, Category } = require("../models");
+const { Product, Category, Blog } = require("../models");
 const { sequelize } = require("../config/db");
 
 const BASE_URL = process.env.BASE_URL || "https://www.foxecom.in";
@@ -12,6 +12,7 @@ const MAIN_SITEMAP_PATH = path.join(PUBLIC_HTML_DIR, "sitemap.xml");
 const PAGE_SITEMAP_PATH = path.join(PUBLIC_HTML_DIR, "page-sitemap.xml");
 const PRODUCT_SITEMAP_PATH = path.join(PUBLIC_HTML_DIR, "product-sitemap.xml");
 const CATEGORY_SITEMAP_PATH = path.join(PUBLIC_HTML_DIR, "category-sitemap.xml");
+const BLOG_SITEMAP_PATH = path.join(PUBLIC_HTML_DIR, "blog-sitemap.xml");
 
 const STATIC_ROUTES = [
   { path: "/", priority: "1.0", changefreq: "daily" },
@@ -161,13 +162,49 @@ async function generateCategorySitemap(today) {
   console.log(`Category sitemap written successfully to ${CATEGORY_SITEMAP_PATH}`);
 }
 
+async function generateBlogSitemap(today) {
+  const chunks = [];
+
+  // Blog listing page
+  chunks.push(urlEntry(`${BASE_URL}/blogs`, today, "daily", "0.8"));
+
+  // Published blog detail pages
+  const blogs = await Blog.findAll({
+    attributes: ["slug", "updatedAt"],
+    where: {
+      status: "published",
+      [Op.and]: [
+        { slug: { [Op.ne]: null } },
+        sequelize.where(sequelize.fn("TRIM", sequelize.col("slug")), Op.ne, ""),
+      ],
+    },
+    order: [["updatedAt", "DESC"]],
+  });
+
+  for (const row of blogs) {
+    const slug = String(row.slug || "").trim();
+    if (!slug) continue;
+    const lastmod = row.updatedAt ? formatLastmod(row.updatedAt) : today;
+    const loc = `${BASE_URL}/blog/${encodeURIComponent(slug)}`;
+    chunks.push(urlEntry(loc, lastmod, "weekly", "0.7"));
+  }
+
+  const xml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    chunks.join("\n") +
+    "\n</urlset>\n";
+
+  await writeFileSafe(BLOG_SITEMAP_PATH, xml);
+  console.log(`Blog sitemap written successfully to ${BLOG_SITEMAP_PATH}`);
+}
+
 async function generateMainSitemapIndex(today) {
   const chunks = [
     sitemapIndexEntry(`${BASE_URL}/page-sitemap.xml`, today),
     sitemapIndexEntry(`${BASE_URL}/product-sitemap.xml`, today),
     sitemapIndexEntry(`${BASE_URL}/category-sitemap.xml`, today),
-    // later:
-    // sitemapIndexEntry(`${BASE_URL}/blog-sitemap.xml`, today),
+    sitemapIndexEntry(`${BASE_URL}/blog-sitemap.xml`, today),
   ];
 
   const xml =
@@ -187,6 +224,7 @@ async function generateSitemap() {
     await generatePageSitemap(today);
     await generateProductSitemap(today);
     await generateCategorySitemap(today);
+    await generateBlogSitemap(today);
     await generateMainSitemapIndex(today);
 
     console.log("All sitemap files generated successfully.");

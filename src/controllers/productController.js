@@ -569,7 +569,10 @@ async function filterAndSortProducts(req, res) {
             { 
                 model: ProductImage, 
                 as: "images",
-                required: false
+                required: false,
+                // Load hasMany images in a separate query so product pagination
+                // is applied to unique products, not multiplied join rows.
+                separate: true
             },
             { 
                 model: Category, 

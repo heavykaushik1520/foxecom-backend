@@ -108,6 +108,12 @@ Product.associate = (models) => {
     as: "sellerReviews",
     onDelete: "CASCADE",
   });
+  Product.belongsToMany(models.Blog, {
+    through: models.BlogRelatedProduct,
+    foreignKey: "productId",
+    otherKey: "blogId",
+    as: "blogs",
+  });
 };
 
 module.exports = Product;

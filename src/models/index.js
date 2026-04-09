@@ -23,6 +23,10 @@ const CustomerReview = require('./customerReview');
 const ReviewReminder = require("./reviewReminder");
 const VisitorSession = require("./visitorSession");
 const SellerReview = require("./sellerReview");
+const Blog = require("./blog");
+const BlogTag = require("./blogTag");
+const BlogTagMap = require("./blogTagMap");
+const BlogRelatedProduct = require("./blogRelatedProduct");
 
 const models = {
   Admin,
@@ -50,6 +54,10 @@ const models = {
   ReviewReminder,
   VisitorSession,
   SellerReview,
+  Blog,
+  BlogTag,
+  BlogTagMap,
+  BlogRelatedProduct,
 };
 
 // Apply associations

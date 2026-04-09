@@ -51,6 +51,7 @@ const superadminRoutes = require('./routes/superadminRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const visitorRoutes = require('./routes/visitorRoutes');
 const adminVisitorRoutes = require('./routes/adminVisitorRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -225,6 +226,9 @@ app.use('/api', analyticsRoutes);
 // Live visitor sessions (public heartbeat; admin-only read)
 app.use('/api', visitorRoutes);
 app.use('/api/admin', adminVisitorRoutes);
+
+// Blog module routes (public + admin)
+app.use('/api', blogRoutes);
 
 // Define your routes here
 app.get('/', (req, res) => {
