@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS marquees (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  text LONGTEXT NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_marquees_is_active (is_active),
+  KEY idx_marquees_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

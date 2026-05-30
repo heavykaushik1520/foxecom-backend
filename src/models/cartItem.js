@@ -23,6 +23,14 @@ const CartItem = sequelize.define('CartItem', {
       key: 'id',
     },
   },
+  selectedModelId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'mobileModels',
+      key: 'id',
+    },
+  },
   quantity: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -34,7 +42,7 @@ const CartItem = sequelize.define('CartItem', {
 });
 
 //  Define associations here
-CartItem.associate = ({ Cart, Product }) => {
+CartItem.associate = ({ Cart, Product, MobileModels }) => {
   CartItem.belongsTo(Cart, {
     foreignKey: 'cartId',
     as: 'cart',
@@ -43,6 +51,11 @@ CartItem.associate = ({ Cart, Product }) => {
   CartItem.belongsTo(Product, {
     foreignKey: 'productId',
     as: 'product',
+  });
+
+  CartItem.belongsTo(MobileModels, {
+    foreignKey: 'selectedModelId',
+    as: 'selectedModel',
   });
 };
 

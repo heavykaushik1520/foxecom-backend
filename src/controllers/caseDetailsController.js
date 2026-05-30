@@ -1,4 +1,12 @@
-const { CaseDetails, Product, MobileBrands, MobileModels, ProductImage, Category } = require("../models");
+const {
+  CaseDetails,
+  Product,
+  MobileBrands,
+  MobileModels,
+  ProductImage,
+  Category,
+  ProductAvailableModels,
+} = require("../models");
 
 async function createCaseDetail(req, res) {
   try {
@@ -211,6 +219,60 @@ async function updateCaseDetail(req, res) {
   }
 }
 
+async function createAvailableModels(req, res) {
+  try {
+    const { productId, models } = req.body;
+
+    if (!productId || !Array.isArray(models) || models.length === 0) {
+      return res
+        .status(400)
+        .json({ message: "productId and models array are required." });
+    }
+
+    const product = await Product.findByPk(productId);
+    if (!product) return res.status(404).json({ message: "Product not found." });
+
+    for (const entry of models) {
+      const model = await MobileModels.findOne({
+        where: { id: entry.modelId, brandId: entry.brandId },
+      });
+      if (!model) {
+        return res.status(400).json({
+          message: `Model ID ${entry.modelId} does not belong to brand ID ${entry.brandId}.`,
+        });
+      }
+    }
+
+    const records = models.map(({ brandId, modelId, priceOverride }) => ({
+      productId,
+      brandId,
+      modelId,
+      priceOverride: priceOverride || null,
+    }));
+
+    await ProductAvailableModels.bulkCreate(records, { ignoreDuplicates: true });
+
+    const result = await ProductAvailableModels.findAll({
+      where: { productId },
+      include: [
+        { model: MobileBrands, as: "brand" },
+        { model: MobileModels, as: "model" },
+      ],
+    });
+
+    return res.status(201).json({
+      message: "Available models saved.",
+      availableModels: result,
+    });
+  } catch (error) {
+    console.error("Error creating available models:", error);
+    res.status(500).json({
+      message: "Failed to save available models.",
+      error: error.message,
+    });
+  }
+}
+
 async function deleteCaseDetail(req, res) {
   try {
     const { id } = req.params;
@@ -237,6 +299,7 @@ async function deleteCaseDetail(req, res) {
 
 module.exports = {
   createCaseDetail,
+  createAvailableModels,
   getAllCaseDetails,
   getCaseDetailById,
   updateCaseDetail,

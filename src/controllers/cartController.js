@@ -1,7 +1,17 @@
 // src/controllers/cartController.js
 
-const { Cart, CartItem, Product, ProductImage, Category } = require("../models");
-const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+const {
+  Cart,
+  CartItem,
+  Product,
+  ProductImage,
+  Category,
+  ProductAvailableModels,
+} = require("../models");
+const {
+  addCategorySpecificDetailsToProducts,
+} = require("../utils/categoryDetailsHelper");
+const { resolveCartLineUnitPrice } = require("../utils/cartLinePriceHelper");
 
 // Helper function to fetch cart with products
 async function getCartWithProducts(userId) {
@@ -14,29 +24,29 @@ async function getCartWithProducts(userId) {
         through: {
           model: CartItem,
           as: "cartItem",
-          attributes: ["quantity", "productId"],
+          attributes: ["quantity", "productId", "selectedModelId"],
         },
-        include: [ 
+        include: [
           {
             model: ProductImage,
             as: "images",
             attributes: ["imageUrl"],
-            limit: 1, 
+            limit: 1,
           },
           {
             model: Category,
-            as: "category"
-          }
+            as: "category",
+          },
         ],
       },
     ],
   });
-  
+
   // Add category-specific details to cart products
   if (cart && cart.products) {
     cart.products = await addCategorySpecificDetailsToProducts(cart.products);
   }
-  
+
   return cart;
 }
 
@@ -44,7 +54,7 @@ async function getCartWithProducts(userId) {
 async function getMyCart(req, res) {
   try {
     let cart = await getCartWithProducts(req.user.userId);
-    
+
     if (!cart) {
       await Cart.create({ userId: req.user.userId });
       cart = await getCartWithProducts(req.user.userId);
@@ -59,14 +69,12 @@ async function getMyCart(req, res) {
   }
 }
 
-
 // Add a product to the user's cart (Increment quantity if exists)
 async function addToCart(req, res) {
   try {
-    const { productId, quantity } = req.body;
-    
-    // Default quantity to 1 if not provided
-    const qtyToAdd = quantity && Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+    const { productId, quantity, selectedModelId } = req.body;
+    const qtyToAdd =
+      quantity && Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
 
     if (!productId) {
       return res.status(400).json({ message: "Invalid or missing productId." });
@@ -77,44 +85,87 @@ async function addToCart(req, res) {
       cart = await Cart.create({ userId: req.user.userId });
     }
 
-    const product = await Product.findByPk(productId);
+    const product = await Product.findByPk(productId, {
+      include: [{ model: ProductAvailableModels, as: "availableModels" }],
+    });
     if (!product) {
       return res.status(404).json({ message: "Product not found." });
     }
 
-    let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: productId } });
+    const isMultiModel = product.availableModels?.length > 0;
+
+    if (isMultiModel) {
+      if (!selectedModelId) {
+        return res.status(400).json({
+          message: "Please select a phone model for this product.",
+        });
+      }
+      const validModel = product.availableModels.find(
+        (m) => m.modelId === parseInt(selectedModelId, 10),
+      );
+      if (!validModel) {
+        return res.status(400).json({
+          message: "Selected phone model is not available for this product.",
+        });
+      }
+    }
+
+    const cartItemWhere = isMultiModel
+      ? {
+          cartId: cart.id,
+          productId,
+          selectedModelId: parseInt(selectedModelId, 10),
+        }
+      : { cartId: cart.id, productId, selectedModelId: null };
+
+    let cartItem = await CartItem.findOne({ where: cartItemWhere });
 
     if (cartItem) {
-      // Increment quantity
       cartItem.quantity += qtyToAdd;
       await cartItem.save();
-      
-      const updatedCart = await getCartWithProducts(req.user.userId);
-      return res.status(200).json({ message: "Product quantity updated in cart.", cart: updatedCart });
     } else {
-      // Create new item
-      await CartItem.create({ cartId: cart.id, productId: productId, quantity: qtyToAdd });
-      
-      const updatedCart = await getCartWithProducts(req.user.userId);
-      return res.status(201).json({ message: "Product added to cart successfully.", cart: updatedCart });
+      await CartItem.create({
+        cartId: cart.id,
+        productId,
+        quantity: qtyToAdd,
+        selectedModelId: isMultiModel ? parseInt(selectedModelId, 10) : null,
+      });
     }
+
+    const updatedCart = await getCartWithProducts(req.user.userId);
+    return res.status(201).json({
+      message: "Product added to cart successfully.",
+      cart: updatedCart,
+    });
   } catch (error) {
     console.error("Error adding to user cart:", error);
-    res.status(500).json({ message: "Failed to add product to cart.", error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Failed to add product to cart.",
+        error: error.message,
+      });
   }
 }
 
 // Update specific product quantity in the user's cart (Set exact quantity)
 async function updateCartItem(req, res) {
   try {
-    const { productId, quantity } = req.body;
-    
+    const { productId, quantity, selectedModelId } = req.body;
+
     if (!productId) {
       return res.status(400).json({ message: "Invalid or missing productId." });
     }
-    
-    if (!quantity || typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1) {
-      return res.status(400).json({ message: "Quantity must be a positive integer (>= 1)." });
+
+    if (
+      !quantity ||
+      typeof quantity !== "number" ||
+      !Number.isInteger(quantity) ||
+      quantity < 1
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Quantity must be a positive integer (>= 1)." });
     }
 
     const cart = await Cart.findOne({ where: { userId: req.user.userId } });
@@ -122,10 +173,34 @@ async function updateCartItem(req, res) {
       return res.status(404).json({ message: "Cart not found for this user." });
     }
 
-    const cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: productId } });
+    const product = await Product.findByPk(productId, {
+      include: [{ model: ProductAvailableModels, as: "availableModels" }],
+    });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    const isMultiModel = product.availableModels?.length > 0;
+    if (isMultiModel) {
+      if (selectedModelId == null || selectedModelId === "") {
+        return res.status(400).json({
+          message: "selectedModelId is required for this product.",
+        });
+      }
+    }
+
+    const cartItemWhere = isMultiModel
+      ? {
+          cartId: cart.id,
+          productId,
+          selectedModelId: parseInt(selectedModelId, 10),
+        }
+      : { cartId: cart.id, productId, selectedModelId: null };
+
+    const cartItem = await CartItem.findOne({ where: cartItemWhere });
 
     if (!cartItem) {
-        return res.status(404).json({ message: "Product not found in cart." });
+      return res.status(404).json({ message: "Product not found in cart." });
     }
 
     // Set exact quantity
@@ -133,11 +208,14 @@ async function updateCartItem(req, res) {
     await cartItem.save();
 
     const updatedCart = await getCartWithProducts(req.user.userId);
-    return res.status(200).json({ message: "Cart item updated successfully.", cart: updatedCart });
-
+    return res
+      .status(200)
+      .json({ message: "Cart item updated successfully.", cart: updatedCart });
   } catch (error) {
     console.error("Error updating cart item:", error);
-    res.status(500).json({ message: "Failed to update cart item.", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed to update cart item.", error: error.message });
   }
 }
 
@@ -145,6 +223,7 @@ async function updateCartItem(req, res) {
 async function deleteCartItem(req, res) {
   try {
     const { productId } = req.params;
+    const selectedModelIdRaw = req.query.selectedModelId;
     if (!productId) {
       return res.status(400).json({ message: "Invalid or missing productId." });
     }
@@ -152,7 +231,33 @@ async function deleteCartItem(req, res) {
     if (!cart) {
       return res.status(404).json({ message: "Cart not found for this user." });
     }
-    const deletedRows = await CartItem.destroy({ where: { cartId: cart.id, productId: productId } });
+
+    const product = await Product.findByPk(productId, {
+      include: [{ model: ProductAvailableModels, as: "availableModels" }],
+    });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found." });
+    }
+
+    const isMultiModel = product.availableModels?.length > 0;
+    if (isMultiModel) {
+      if (selectedModelIdRaw == null || selectedModelIdRaw === "") {
+        return res.status(400).json({
+          message:
+            "Query parameter selectedModelId is required for this product.",
+        });
+      }
+    }
+
+    const destroyWhere = isMultiModel
+      ? {
+          cartId: cart.id,
+          productId,
+          selectedModelId: parseInt(selectedModelIdRaw, 10),
+        }
+      : { cartId: cart.id, productId, selectedModelId: null };
+
+    const deletedRows = await CartItem.destroy({ where: destroyWhere });
     if (deletedRows > 0) {
       return res.status(204).send();
     } else {
@@ -160,7 +265,12 @@ async function deleteCartItem(req, res) {
     }
   } catch (error) {
     console.error("Error deleting item from cart:", error);
-    res.status(500).json({ message: "Failed to delete item from cart.", error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Failed to delete item from cart.",
+        error: error.message,
+      });
   }
 }
 
@@ -174,7 +284,9 @@ async function clearMyCart(req, res) {
     res.status(204).send();
   } catch (error) {
     console.error("Error clearing user cart:", error);
-    res.status(500).json({ message: "Failed to clear cart.", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed to clear cart.", error: error.message });
   }
 }
 
@@ -182,12 +294,12 @@ async function clearMyCart(req, res) {
 async function validateCartForCheckout(req, res) {
   try {
     const cart = await getCartWithProducts(req.user.userId);
-    
+
     if (!cart || !cart.products || cart.products.length === 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: "Cart is empty. Add products to proceed with checkout.",
         canProceedToCheckout: false,
-        cartItems: 0
+        cartItems: 0,
       });
     }
 
@@ -196,25 +308,28 @@ async function validateCartForCheckout(req, res) {
     let totalAmount = 0;
 
     // Get all cartItems to check for deleted products
-    const cartItems = await CartItem.findAll({ 
+    const cartItems = await CartItem.findAll({
       where: { cartId: cart.id },
-      attributes: ['productId']
+      attributes: ["productId"],
     });
     const existingProductIds = cart.products
-      .filter(p => p !== null)
-      .map(p => p.id);
+      .filter((p) => p !== null)
+      .map((p) => p.id);
     const deletedProductIds = cartItems
-      .map(item => item.productId)
-      .filter(id => !existingProductIds.includes(id));
-    
-    deletedProductIds.forEach(productId => {
+      .map((item) => item.productId)
+      .filter((id) => !existingProductIds.includes(id));
+
+    deletedProductIds.forEach((productId) => {
       unavailableProducts.push({ id: productId, name: "Product not found" });
     });
 
-    // Calculate total for available products
     for (const product of cart.products) {
       if (product && product.cartItem) {
-        totalAmount += parseFloat(product.price) * product.cartItem.quantity;
+        const unit = await resolveCartLineUnitPrice(
+          product,
+          product.cartItem.selectedModelId,
+        );
+        totalAmount += unit * product.cartItem.quantity;
       }
     }
 
@@ -223,7 +338,7 @@ async function validateCartForCheckout(req, res) {
         message: "Some products in your cart are no longer available.",
         canProceedToCheckout: false,
         unavailableProducts,
-        cartItems: cart.products.length
+        cartItems: cart.products.length,
       });
     }
 
@@ -232,11 +347,16 @@ async function validateCartForCheckout(req, res) {
       canProceedToCheckout: true,
       cartItems: cart.products.length,
       totalAmount: totalAmount.toFixed(2),
-      cart: cart
+      cart: cart,
     });
   } catch (error) {
     console.error("Error validating cart for checkout:", error);
-    res.status(500).json({ message: "Failed to validate cart for checkout.", error: error.message });
+    res
+      .status(500)
+      .json({
+        message: "Failed to validate cart for checkout.",
+        error: error.message,
+      });
   }
 }
 
@@ -248,6 +368,3 @@ module.exports = {
   clearMyCart,
   validateCartForCheckout,
 };
-
-
-

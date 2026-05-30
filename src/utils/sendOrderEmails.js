@@ -49,6 +49,11 @@ const getSafeOrderDisplayId = (order, orderItems = []) => {
   return getOrderDisplayId(order);
 };
 
+const orderItemLineTitle = (item) => {
+  const parts = [item.product?.title, item.selectedModelName].filter(Boolean);
+  return parts.length ? parts.join(" — ") : "Product";
+};
+
 // Generate product rows HTML for email
 const generateProductRowsHTML = (orderItems) => {
   return orderItems
@@ -56,7 +61,7 @@ const generateProductRowsHTML = (orderItems) => {
       (item) => `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">
-          <strong>${item.product?.title || "Product"}</strong>
+          <strong>${orderItemLineTitle(item)}</strong>
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;">
           ${item.quantity}
@@ -456,7 +461,7 @@ const getCustomerEmailText = (order, orderItems) => {
   const productList = orderItems
     .map(
       (item) =>
-        `- ${item.product?.title || "Product"} x ${item.quantity} = ${formatCurrency(item.priceAtPurchase * item.quantity)}`
+        `- ${orderItemLineTitle(item)} x ${item.quantity} = ${formatCurrency(item.priceAtPurchase * item.quantity)}`
     )
     .join("\n");
 
@@ -506,7 +511,7 @@ const getAdminEmailText = (order, orderItems) => {
   const productList = orderItems
     .map(
       (item) =>
-        `- ${item.product?.title || "Product"} x ${item.quantity} @ ${formatCurrency(item.priceAtPurchase)} = ${formatCurrency(item.priceAtPurchase * item.quantity)}`
+        `- ${orderItemLineTitle(item)} x ${item.quantity} @ ${formatCurrency(item.priceAtPurchase)} = ${formatCurrency(item.priceAtPurchase * item.quantity)}`
     )
     .join("\n");
 

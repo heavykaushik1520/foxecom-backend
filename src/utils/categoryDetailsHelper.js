@@ -1,7 +1,12 @@
 // src/utils/categoryDetailsHelper.js
 // Utility to handle category-specific product details (e.g., CaseDetails for mobile cases)
 
-const { CaseDetails, MobileBrands, MobileModels } = require("../models");
+const {
+  CaseDetails,
+  MobileBrands,
+  MobileModels,
+  ProductAvailableModels,
+} = require("../models");
 
 /**
  * Adds category-specific details to a product based on its category
@@ -11,22 +16,36 @@ const { CaseDetails, MobileBrands, MobileModels } = require("../models");
 async function addCategorySpecificDetails(product) {
   try {
     const productData = product.toJSON ? product.toJSON() : product;
-    
-    // Check if product belongs to mobile cases category
-    const categoryName = productData.category?.name?.toLowerCase() || '';
-    
-    if (categoryName.includes('case')) {
+
+    const availableModels = await ProductAvailableModels.findAll({
+      where: { productId: productData.id },
+      include: [
+        { model: MobileBrands, as: "brand" },
+        { model: MobileModels, as: "model" },
+      ],
+    });
+
+    if (availableModels.length > 0) {
+      productData.availableModels = availableModels;
+      productData.productType = "multi-model";
+      return productData;
+    }
+
+    const categoryName = productData.category?.name?.toLowerCase() || "";
+
+    if (categoryName.includes("case")) {
       const caseDetails = await CaseDetails.findOne({
         where: { productId: productData.id },
         include: [
           { model: MobileBrands, as: "brand" },
-          { model: MobileModels, as: "model" }
-        ]
+          { model: MobileModels, as: "model" },
+        ],
       });
-      
+
       if (caseDetails) {
         productData.caseDetails = caseDetails;
       }
+      productData.productType = "single-model";
     }
     
     // Add more category-specific details here as needed

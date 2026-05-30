@@ -36,6 +36,7 @@ const mobileModelsRoutes = require('./routes/mobileModelsRoutes');
 const caseDetailsRoutes = require('./routes/caseDetailsRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
+const marqueeRoutes = require('./routes/marqueeRoutes');
 const delhiveryRoutes = require('./routes/delhiveryRoutes');
 const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
 const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
@@ -109,7 +110,7 @@ app.use(cors({
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -201,6 +202,7 @@ app.use("/api", contactRoutes);
 
 // Banner (billboard) routes – public GET /api/banners, admin CRUD under /api/admin/banners
 app.use("/api", bannerRoutes);
+app.use("/api", marqueeRoutes);
 
 // Delhivery shipping – backend only; admin for write, some read for tracking
 app.use("/api/shipping/delhivery", delhiveryRoutes);
@@ -243,7 +245,7 @@ app.use((err, req, res, next) => {
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port} in Devrukh.`);
+  console.log(`Server is running on http://localhost:${port}.`);
 });
 
 module.exports = app;

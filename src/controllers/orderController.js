@@ -24,7 +24,10 @@ const {
   Cart,
   CartItem,
   ProductImage,
+  ProductAvailableModels,
+  MobileModels,
 } = require("../models");
+const { resolveCartLineUnitPrice } = require("../utils/cartLinePriceHelper");
 const commonUtils = require("./commonUtils");
 const {
   getPaidOrderCount,
@@ -167,7 +170,7 @@ async function createOrder(req, res) {
           through: {
             model: CartItem,
             as: "cartItem",
-            attributes: ["quantity"],
+            attributes: ["quantity", "selectedModelId"],
           },
           include: [
             {
@@ -208,15 +211,17 @@ async function createOrder(req, res) {
       unavailableProducts.push({ id: productId, name: "Product not found" });
     });
 
-    // Calculate total for available products using discountPrice if available, otherwise price
-    for (const product of cart.products) {
-      if (product && product.cartItem) {
-        const productPrice = product.discountPrice
-          ? parseFloat(product.discountPrice)
-          : parseFloat(product.price);
-        totalAmount += productPrice * product.cartItem.quantity;
-      }
-    }
+    const lineTotals = await Promise.all(
+      cart.products.map(async (product) => {
+        if (!product?.cartItem) return 0;
+        const unit = await resolveCartLineUnitPrice(
+          product,
+          product.cartItem.selectedModelId,
+        );
+        return unit * product.cartItem.quantity;
+      }),
+    );
+    totalAmount = lineTotals.reduce((a, b) => a + b, 0);
 
     if (unavailableProducts.length > 0) {
       return res.status(400).json({
@@ -260,18 +265,41 @@ async function createOrder(req, res) {
       status: "pending",
     });
 
-    // Create order items - store discountPrice if available, otherwise price
-    const orderItems = cart.products.map((product) => {
-      const productPrice = product.discountPrice
-        ? parseFloat(product.discountPrice)
-        : parseFloat(product.price);
-      return {
-        orderId: order.id,
-        productId: product.id,
-        quantity: product.cartItem.quantity,
-        priceAtPurchase: productPrice,
-      };
-    });
+    const orderItems = await Promise.all(
+      cart.products.map(async (product) => {
+        const selectedModelId = product.cartItem.selectedModelId || null;
+
+        let priceAtPurchase = product.discountPrice
+          ? parseFloat(product.discountPrice)
+          : parseFloat(product.price);
+
+        let selectedModelName = null;
+
+        if (selectedModelId) {
+          const availableModel = await ProductAvailableModels.findOne({
+            where: { productId: product.id, modelId: selectedModelId },
+            include: [{ model: MobileModels, as: "model" }],
+          });
+          if (
+            availableModel != null &&
+            availableModel.priceOverride != null &&
+            availableModel.priceOverride !== ""
+          ) {
+            priceAtPurchase = parseFloat(availableModel.priceOverride);
+          }
+          selectedModelName = availableModel?.model?.name || null;
+        }
+
+        return {
+          orderId: order.id,
+          productId: product.id,
+          quantity: product.cartItem.quantity,
+          priceAtPurchase,
+          selectedModelId,
+          selectedModelName,
+        };
+      }),
+    );
 
     await OrderItem.bulkCreate(orderItems);
 

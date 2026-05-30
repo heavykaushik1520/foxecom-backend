@@ -1,6 +1,12 @@
 // src/controllers/guestCartController.js
-const { Cart, CartItem, Product, ProductImage, Category } = require("../models");
-const { Op } = require("sequelize");
+const {
+  Cart,
+  CartItem,
+  Product,
+  ProductImage,
+  Category,
+  ProductAvailableModels,
+} = require("../models");
 const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 
 function toValidGuestCartId(value) {
@@ -68,7 +74,7 @@ async function getGuestCart(req, res) {
 async function addToGuestCart(req, res) {
     try {
         const { guestCartId } = req.params;
-        const { productId, quantity } = req.body;
+        const { productId, quantity, selectedModelId } = req.body;
 
         // Improved validation with specific error messages
         if (!guestCartId) {
@@ -99,18 +105,50 @@ async function addToGuestCart(req, res) {
             return res.status(404).json({ message: "Guest cart not found. Please create one first." });
         }
 
-        const product = await Product.findByPk(parsedProductId);
+        const product = await Product.findByPk(parsedProductId, {
+            include: [{ model: ProductAvailableModels, as: "availableModels" }],
+        });
         if (!product) {
             return res.status(404).json({ message: "Product not found." });
         }
 
-        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: parsedProductId } });
+        const isMultiModel = product.availableModels?.length > 0;
+        if (isMultiModel) {
+            if (!selectedModelId) {
+                return res.status(400).json({
+                    message: "Please select a phone model for this product.",
+                });
+            }
+            const validModel = product.availableModels.find(
+                (m) => m.modelId === parseInt(selectedModelId, 10)
+            );
+            if (!validModel) {
+                return res.status(400).json({
+                    message: "Selected phone model is not available for this product.",
+                });
+            }
+        }
+
+        const cartItemWhere = isMultiModel
+            ? {
+                cartId: cart.id,
+                productId: parsedProductId,
+                selectedModelId: parseInt(selectedModelId, 10),
+            }
+            : { cartId: cart.id, productId: parsedProductId, selectedModelId: null };
+
+        let cartItem = await CartItem.findOne({ where: cartItemWhere });
 
         if (cartItem) {
             cartItem.quantity += qtyToAdd;
             await cartItem.save();
         } else {
-            await CartItem.create({ cartId: cart.id, productId: parsedProductId, quantity: qtyToAdd });
+            await CartItem.create({
+                cartId: cart.id,
+                productId: parsedProductId,
+                quantity: qtyToAdd,
+                selectedModelId: isMultiModel ? parseInt(selectedModelId, 10) : null,
+            });
         }
 
         const updatedCart = await fetchGuestCartWithProducts(guestCartId);
@@ -126,7 +164,7 @@ async function addToGuestCart(req, res) {
 async function updateGuestCartItem(req, res) {
     try {
         const { guestCartId } = req.params;
-        const { productId, quantity } = req.body;
+        const { productId, quantity, selectedModelId } = req.body;
 
         if (!guestCartId || !productId) {
             return res.status(400).json({ message: "Invalid request data." });
@@ -147,7 +185,31 @@ async function updateGuestCartItem(req, res) {
             return res.status(404).json({ message: "Guest cart not found." });
         }
 
-        let cartItem = await CartItem.findOne({ where: { cartId: cart.id, productId: parsedProductId } });
+        const product = await Product.findByPk(parsedProductId, {
+            include: [{ model: ProductAvailableModels, as: "availableModels" }],
+        });
+        if (!product) {
+            return res.status(404).json({ message: "Product not found." });
+        }
+
+        const isMultiModel = product.availableModels?.length > 0;
+        if (isMultiModel) {
+            if (selectedModelId == null || selectedModelId === "") {
+                return res.status(400).json({
+                    message: "selectedModelId is required for this product.",
+                });
+            }
+        }
+
+        const cartItemWhere = isMultiModel
+            ? {
+                cartId: cart.id,
+                productId: parsedProductId,
+                selectedModelId: parseInt(selectedModelId, 10),
+            }
+            : { cartId: cart.id, productId: parsedProductId, selectedModelId: null };
+
+        let cartItem = await CartItem.findOne({ where: cartItemWhere });
 
         if (cartItem) {
             cartItem.quantity = quantity;
@@ -175,7 +237,7 @@ async function fetchGuestCartWithProducts(guestCartId) {
                 through: {
                     model: CartItem,
                     as: "cartItem",
-                    attributes: ["quantity"],
+                    attributes: ["quantity", "productId", "selectedModelId"],
                 },
                 include: [
                     {
@@ -204,20 +266,44 @@ async function fetchGuestCartWithProducts(guestCartId) {
 async function deleteGuestCartItem(req, res) {
     try {
         const { guestCartId, productId } = req.params;
+        const selectedModelIdRaw = req.query.selectedModelId;
 
         if (!guestCartId || !productId) {
             return res.status(400).json({ message: "Invalid request data." });
         }
-        
-        // Find the guest cart
+
         const cart = await Cart.findOne({ where: { guestCartId: guestCartId } });
         if (!cart) {
             return res.status(404).json({ message: "Guest cart not found." });
         }
 
-        // Destroy the cart item
+        const parsedProductId = parseInt(productId, 10);
+        const product = await Product.findByPk(parsedProductId, {
+            include: [{ model: ProductAvailableModels, as: "availableModels" }],
+        });
+        if (!product) {
+            return res.status(404).json({ message: "Product not found." });
+        }
+
+        const isMultiModel = product.availableModels?.length > 0;
+        if (isMultiModel) {
+            if (selectedModelIdRaw == null || selectedModelIdRaw === "") {
+                return res.status(400).json({
+                    message: "Query parameter selectedModelId is required for this product.",
+                });
+            }
+        }
+
+        const destroyWhere = isMultiModel
+            ? {
+                cartId: cart.id,
+                productId: parsedProductId,
+                selectedModelId: parseInt(selectedModelIdRaw, 10),
+            }
+            : { cartId: cart.id, productId: parsedProductId, selectedModelId: null };
+
         const deletedRows = await CartItem.destroy({
-            where: { cartId: cart.id, productId: productId },
+            where: destroyWhere,
         });
 
         if (deletedRows > 0) {
@@ -256,16 +342,22 @@ async function mergeCartsOnLogin(req, res) {
             const [existingUserCartItem, created] = await CartItem.findOrCreate({
                 where: {
                     cartId: userCart.id,
-                    productId: guestItem.productId
+                    productId: guestItem.productId,
+                    selectedModelId: guestItem.selectedModelId ?? null,
                 },
                 defaults: {
-                    quantity: guestItem.quantity
-                }
+                    quantity: guestItem.quantity,
+                },
             });
 
             if (!created) {
-                // If item already existed, update its quantity
-                existingUserCartItem.quantity += guestItem.quantity;
+                // Keep merge idempotent-safe: if the same guest cart is merged twice
+                // (due to retry/race), do not double-add quantities.
+                // Preserve whichever quantity is higher.
+                existingUserCartItem.quantity = Math.max(
+                    Number(existingUserCartItem.quantity) || 0,
+                    Number(guestItem.quantity) || 0
+                );
                 await existingUserCartItem.save();
             }
         }
@@ -282,7 +374,7 @@ async function mergeCartsOnLogin(req, res) {
                     through: {
                         model: CartItem,
                         as: "cartItem",
-                        attributes: ["quantity"],
+                        attributes: ["quantity", "productId", "selectedModelId"],
                     },
                     include: [
                         {

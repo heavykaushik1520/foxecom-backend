@@ -2,6 +2,7 @@
 
 const { Cart, CartItem, Product, ProductImage, Order, OrderItem, Category } = require("../models");
 const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+const { resolveCartLineUnitPrice } = require("../utils/cartLinePriceHelper");
 const { getPaidOrderCount, getUpiDiscountPercent } = require("../utils/upiDiscountHelper");
 
 
@@ -23,7 +24,7 @@ async function getCheckoutSummary(req, res) {
           through: {
             model: CartItem,
             as: "cartItem",
-            attributes: ["quantity"],
+            attributes: ["quantity", "selectedModelId"],
           },
           include: [
             {
@@ -76,11 +77,13 @@ async function getCheckoutSummary(req, res) {
       unavailableProducts.push({ id: productId, name: "Product not found" });
     });
 
-    // Calculate total for available products using discountPrice if available, otherwise price
     for (const product of cart.products) {
       if (product && product.cartItem) {
         const quantity = product.cartItem.quantity;
-        const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
+        const productPrice = await resolveCartLineUnitPrice(
+          product,
+          product.cartItem.selectedModelId,
+        );
         totalAmount += productPrice * quantity;
         totalItems += quantity;
       }
@@ -121,18 +124,25 @@ async function getCheckoutSummary(req, res) {
         discountLabel: discountPercent > 0 ? `${discountPercent}% UPI discount (${nextOrderNumber === 2 ? "2nd" : "3rd"} purchase)` : null,
         shipping: shippingCost.toFixed(2),
         totalAmount: finalTotal.toFixed(2),
-        products: cart.products.map(product => {
-          const productPrice = product.discountPrice ? parseFloat(product.discountPrice) : parseFloat(product.price);
-          return {
-            id: product.id,
-            title: product.title,
-            price: product.discountPrice || product.price,
-            discountPrice: product.discountPrice,
-            quantity: product.cartItem.quantity,
-            image: product.images?.[0]?.imageUrl || product.thumbnailImage || null,
-            total: (productPrice * product.cartItem.quantity).toFixed(2)
-          };
-        })
+        products: await Promise.all(
+          cart.products.map(async (product) => {
+            const productPrice = await resolveCartLineUnitPrice(
+              product,
+              product.cartItem?.selectedModelId,
+            );
+            return {
+              id: product.id,
+              title: product.title,
+              price: product.discountPrice || product.price,
+              discountPrice: product.discountPrice,
+              quantity: product.cartItem.quantity,
+              selectedModelId: product.cartItem.selectedModelId ?? null,
+              image:
+                product.images?.[0]?.imageUrl || product.thumbnailImage || null,
+              total: (productPrice * product.cartItem.quantity).toFixed(2),
+            };
+          }),
+        ),
       }
     });
 

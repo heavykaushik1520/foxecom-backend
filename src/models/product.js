@@ -114,6 +114,11 @@ Product.associate = (models) => {
     otherKey: "blogId",
     as: "blogs",
   });
+  Product.hasMany(models.ProductAvailableModels, {
+    foreignKey: "productId",
+    as: "availableModels",
+    onDelete: "CASCADE",
+  });
 };
 
 module.exports = Product;

@@ -35,9 +35,12 @@ function computeInvoiceLines(orderItems = []) {
     gstTotal += lineGst;
     grandTotal += lineTotal;
 
+    const titleParts = [item.product?.title, item.selectedModelName].filter(
+      Boolean,
+    );
     lines.push({
       quantity: qty,
-      title: item.product?.title || "Product",
+      title: titleParts.length ? titleParts.join(" — ") : "Product",
       sku: item.product?.sku || "",
       unitPrice: basePrice,
       gstRate: GST_RATE * 100,

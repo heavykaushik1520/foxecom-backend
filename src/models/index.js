@@ -10,6 +10,7 @@ const ProductImage = require('./productImage');
 const MobileBrands = require('./mobileBrands');
 const MobileModels = require('./mobileModels');
 const CaseDetails = require('./caseDetails');
+const ProductAvailableModels = require('./productAvailableModels');
 const Review = require('./review');
 const ProductRatingSummary = require('./productRatingSummary');
 const Banner = require('./banner');
@@ -27,6 +28,7 @@ const Blog = require("./blog");
 const BlogTag = require("./blogTag");
 const BlogTagMap = require("./blogTagMap");
 const BlogRelatedProduct = require("./blogRelatedProduct");
+const Marquee = require("./marquee");
 
 const models = {
   Admin,
@@ -41,6 +43,7 @@ const models = {
   MobileBrands,
   MobileModels,
   CaseDetails,
+  ProductAvailableModels,
   Review,
   ProductRatingSummary,
   Banner,
@@ -58,6 +61,7 @@ const models = {
   BlogTag,
   BlogTagMap,
   BlogRelatedProduct,
+  Marquee,
 };
 
 // Apply associations

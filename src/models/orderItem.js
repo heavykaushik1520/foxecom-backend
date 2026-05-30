@@ -9,6 +9,15 @@ const OrderItem = sequelize.define(
     productId: { type: DataTypes.INTEGER, allowNull: false },
     quantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     priceAtPurchase: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+    selectedModelId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: "mobileModels", key: "id" },
+    },
+    selectedModelName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
   {
     tableName: "order_items",
