@@ -41,6 +41,7 @@ const delhiveryRoutes = require('./routes/delhiveryRoutes');
 const dealOfTheWeekRoutes = require('./routes/dealOfTheWeekRoutes');
 const buyOneGetOneRoutes = require('./routes/buyOneGetOneRoutes');
 const foxcomOriginalsRoutes = require('./routes/foxcomOriginalsRoutes');
+const variantGroupRoutes = require('./routes/variantGroupRoutes');
 const googleAuthRoutes = require('./routes/googleAuthRoutes');
 const metaProductFeedRoutes = require("./routes/metaProductFeedRoutes");
 const googleMerchantRoutes = require("./routes/googleMerchantRoutes");
@@ -215,6 +216,9 @@ app.use("/api", buyOneGetOneRoutes);
 
 // FOXECOM Originals routes – public GET, admin CRUD
 app.use("/api", foxcomOriginalsRoutes);
+
+// Color variant groups – admin CRUD
+app.use("/api", variantGroupRoutes);
 
 // Meta Product Catalog CSV feed
 app.use("/api", metaProductFeedRoutes);

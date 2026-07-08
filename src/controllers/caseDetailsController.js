@@ -10,7 +10,7 @@ const {
 
 async function createCaseDetail(req, res) {
   try {
-    const { productId, brandId, modelId, color, material, caseType } = req.body;
+    const { productId, brandId, modelId, color, colorHex, material, caseType } = req.body;
     
     // Validation
     if (!productId || !brandId || !modelId) {
@@ -59,6 +59,7 @@ async function createCaseDetail(req, res) {
       brandId,
       modelId,
       color: color || null,
+      colorHex: colorHex || null,
       material: material || null,
       caseType: caseType || null
     });
@@ -155,7 +156,7 @@ async function getCaseDetailById(req, res) {
 async function updateCaseDetail(req, res) {
   try {
     const { id } = req.params;
-    const { productId, brandId, modelId, color, material, caseType } = req.body;
+    const { productId, brandId, modelId, color, colorHex, material, caseType } = req.body;
 
     const caseDetail = await CaseDetails.findByPk(id);
     if (!caseDetail) {
@@ -191,6 +192,7 @@ async function updateCaseDetail(req, res) {
     if (brandId !== undefined) updateData.brandId = brandId;
     if (modelId !== undefined) updateData.modelId = modelId;
     if (color !== undefined) updateData.color = color;
+    if (colorHex !== undefined) updateData.colorHex = colorHex;
     if (material !== undefined) updateData.material = material;
     if (caseType !== undefined) updateData.caseType = caseType;
 

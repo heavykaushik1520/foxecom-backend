@@ -5,6 +5,7 @@ const { Op, Sequelize } = require("sequelize");
 const { Product, ProductImage, Category, CaseDetails, MobileBrands, MobileModels } = require("../models"); // Import from index.js
 const { sequelize } = require("../config/db");
 const { addCategorySpecificDetails, addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
+const { attachVariantGroupDetails, mergeListingVariantFilter } = require("../utils/variantGroupHelper");
 const {
     slugifyFromTitle,
     normalizeSlugInput,
@@ -207,7 +208,8 @@ async function getProductById(req, res) {
         }
         
         // Add category-specific details (e.g., CaseDetails for mobile cases)
-        const productWithDetails = await addCategorySpecificDetails(product);
+        let productWithDetails = await addCategorySpecificDetails(product);
+        productWithDetails = await attachVariantGroupDetails(productWithDetails);
         
         res.status(200).json(productWithDetails);
     } catch (error) {
@@ -752,11 +754,14 @@ async function filterAndSortProducts(req, res) {
             order = [[sortField, orderDirection]];
         }
 
-        // Execute query
+        // Execute query — skip variant dedupe when case-detail filters target a specific variant
+        const listingWhere = hasCaseDetailsFilter
+            ? productWhere
+            : mergeListingVariantFilter(productWhere);
         const { count, rows: products } = await Product.findAndCountAll({
             limit: limitNum,
             offset: offset,
-            where: productWhere,
+            where: listingWhere,
             include: includeClause,
             order: order,
             distinct: true, // Important for counting with joins
@@ -843,10 +848,11 @@ async function getAllProducts(req, res) {
         if (priceOrder && ['asc', 'desc'].includes(String(priceOrder).toLowerCase())) {
             order = [['price', String(priceOrder).toUpperCase()]];
         }
+        const listingWhere = mergeListingVariantFilter(where);
         const { count, rows: products } = await Product.findAndCountAll({
             limit: parseInt(limit),
             offset: offset,
-            where,
+            where: listingWhere,
             order,
             include: [
                 { model: ProductImage, as: "images" },

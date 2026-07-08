@@ -9,7 +9,8 @@
     "migrate:delhivery": "node scripts/run-delhivery-migration.js",
     "migrate:shipping": "node scripts/run-all-shipping-migration.js",
     "migrate:visitor-sessions": "node scripts/run-visitor-sessions-migration.js",
-    "migrate:product-available-models": "node scripts/run-product-available-models-migration.js"
+    "migrate:product-available-models": "node scripts/run-product-available-models-migration.js",
+    "migrate:product-variant-groups": "node scripts/run-product-variant-groups-migration.js"
   },
   "keywords": [],
   "author": "",

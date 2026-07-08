@@ -7,6 +7,21 @@ const {
   Category,
 } = require("../models");
 
+function formatOriginalsProduct(product) {
+  return {
+    id: product.id,
+    title: product.title,
+    slug: product.slug,
+    price: product.price,
+    discountPrice: product.discountPrice,
+    stock: product.stock,
+    sku: product.sku,
+    thumbnailImage: product.thumbnailImage,
+    category: product.category,
+    sortOrder: product.FoxcomOriginalsProduct?.sortOrder || 0,
+  };
+}
+
 async function getActiveFoxcomOriginals(req, res) {
   try {
     const originals = await FoxcomOriginals.findOne({
@@ -24,7 +39,7 @@ async function getActiveFoxcomOriginals(req, res) {
             {
               model: Category,
               as: "category",
-              attributes: ["id", "name"],
+              attributes: ["id", "name", "slug"],
             },
           ],
           order: [[FoxcomOriginalsProduct, "sortOrder", "ASC"]],
@@ -41,13 +56,7 @@ async function getActiveFoxcomOriginals(req, res) {
       });
     }
 
-    const formattedProducts = originals.products.map((product) => ({
-      id: product.id,
-      title: product.title,
-      thumbnailImage: product.thumbnailImage,
-      category: product.category,
-      sortOrder: product.FoxcomOriginalsProduct?.sortOrder || 0,
-    }));
+    const formattedProducts = originals.products.map(formatOriginalsProduct);
 
     return res.status(200).json({
       success: true,
@@ -153,7 +162,7 @@ async function getFoxcomOriginalsById(req, res) {
             {
               model: Category,
               as: "category",
-              attributes: ["id", "name"],
+              attributes: ["id", "name", "slug"],
             },
           ],
           order: [[FoxcomOriginalsProduct, "sortOrder", "ASC"]],
@@ -168,13 +177,7 @@ async function getFoxcomOriginalsById(req, res) {
       });
     }
 
-    const formattedProducts = originals.products.map((product) => ({
-      id: product.id,
-      title: product.title,
-      thumbnailImage: product.thumbnailImage,
-      category: product.category,
-      sortOrder: product.FoxcomOriginalsProduct?.sortOrder || 0,
-    }));
+    const formattedProducts = originals.products.map(formatOriginalsProduct);
 
     return res.status(200).json({
       success: true,

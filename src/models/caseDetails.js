@@ -16,6 +16,10 @@ const CaseDetails = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    colorHex: {
+      type: DataTypes.STRING(7),
+      allowNull: true,
+    },
     material: {
       type: DataTypes.TEXT,
       allowNull: true,

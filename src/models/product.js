@@ -45,6 +45,16 @@ const Product = sequelize.define(
 
     },
 
+    variantGroupId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    isDefaultVariant: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
     sku: {
       type: DataTypes.STRING,
       allowNull: true
@@ -118,6 +128,10 @@ Product.associate = (models) => {
     foreignKey: "productId",
     as: "availableModels",
     onDelete: "CASCADE",
+  });
+  Product.belongsTo(models.ProductGroup, {
+    foreignKey: "variantGroupId",
+    as: "variantGroupRef",
   });
 };
 
