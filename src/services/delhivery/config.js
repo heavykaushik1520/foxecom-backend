@@ -31,6 +31,8 @@ function getDelhiveryConfig() {
    */
   const originPin = (process.env.DELHIVERY_ORIGIN_PIN || '').trim();
 
+  const dispatchCutoffHour = Number(process.env.DISPATCH_CUTOFF_HOUR);
+
   return {
     baseUrl,
     apiKey,
@@ -38,6 +40,10 @@ function getDelhiveryConfig() {
     warehouseCode,
     client,
     originPin,
+    dispatchCutoffHour:
+      Number.isFinite(dispatchCutoffHour) && dispatchCutoffHour >= 0 && dispatchCutoffHour <= 23
+        ? dispatchCutoffHour
+        : 14,
     isConfigured: Boolean(apiKey && baseUrl && pickupLocation),
   };
 }

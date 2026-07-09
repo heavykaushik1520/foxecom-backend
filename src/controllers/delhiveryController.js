@@ -18,6 +18,8 @@ const {
   createOrderShipment,
   prepareOrderForShipment,
 } = require("../services/delhivery/orderShipment");
+const { getDeliveryEstimate } = require("../services/delhivery/deliveryEstimate");
+const { getDispatchConfig } = require("../utils/deliveryEstimateHelper");
 const { Order } = require("../models");
 const { sendShipmentEmailToCustomer } = require("../utils/sendOrderEmails");
 
@@ -90,6 +92,71 @@ async function getTat(req, res) {
   } catch (err) {
     console.error("[Delhivery] getTAT error", err);
     sendError(res, 500, "Failed to fetch TAT", err.message);
+  }
+}
+
+async function getDeliveryEstimateRoute(req, res) {
+  try {
+    const pincode =
+      req.query.pincode || req.query.destPin || req.query.dest || req.params.pincode;
+    const paymentMode = (req.query.paymentMode || "PREPAID").toUpperCase();
+
+    const destPinClean =
+      pincode != null ? String(pincode).replace(/\D/g, "").trim() : "";
+    if (!destPinClean || destPinClean.length !== 6) {
+      return sendError(
+        res,
+        400,
+        "Pincode is required and must be 6 digits",
+      );
+    }
+
+    const result = await getDeliveryEstimate({
+      destPin: destPinClean,
+      paymentMode,
+      allowFallback: true,
+    });
+
+    if (!result.success) {
+      return res.status(200).json({
+        success: false,
+        error: result.error || "Delivery estimate unavailable",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      serviceable: result.serviceable,
+      prepaid: result.prepaid,
+      cod: result.cod,
+      tatDays: result.tatDays,
+      expectedPickupDate: result.expectedPickupDate,
+      estimatedDeliveryFrom: result.estimatedDeliveryFrom,
+      estimatedDeliveryTo: result.estimatedDeliveryTo,
+      deliveryEstimateLabel: result.deliveryEstimateLabel,
+      source: result.source || "delhivery",
+      dispatchCutoffHour: result.dispatchCutoffHour,
+      dispatchTimezone: result.dispatchTimezone,
+      dispatchNote: result.dispatchNote,
+      cached: Boolean(result.cached),
+    });
+  } catch (err) {
+    console.error("[Delhivery] getDeliveryEstimate error", err);
+    sendError(res, 500, "Failed to fetch delivery estimate", err.message);
+  }
+}
+
+async function getDispatchConfigRoute(req, res) {
+  try {
+    const config = getDispatchConfig();
+    res.status(200).json({
+      success: true,
+      cutoffHour: config.cutoffHour,
+      timezone: config.timezone,
+      note: `Orders placed before ${config.cutoffHour}:00 IST are dispatched the same business day (excluding Sundays).`,
+    });
+  } catch (err) {
+    sendError(res, 500, "Failed to fetch dispatch config", err.message);
   }
 }
 
@@ -309,6 +376,8 @@ module.exports = {
   getBulkWaybill,
   checkPincodeServiceability,
   getTat,
+  getDeliveryEstimateRoute,
+  getDispatchConfigRoute,
   createWarehouseRoute,
   createShipmentRoute,
   updateShipmentRoute,

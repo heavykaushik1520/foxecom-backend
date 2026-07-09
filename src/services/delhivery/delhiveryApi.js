@@ -176,7 +176,7 @@ async function pincodeServiceability(pincode, options = {}) {
  * @param {number} [weightGm] - Weight in grams (optional for TAT)
  * @returns {Promise<{ success: boolean, tatDays?: number, error?: string }>}
  */
-async function getTAT(originPin, destPin, weightGm = 500) {
+async function getTAT(originPin, destPin, weightGm = 500, options = {}) {
   const {
     baseUrl,
     originPin: configOrigin,
@@ -198,11 +198,18 @@ async function getTAT(originPin, destPin, weightGm = 500) {
       ? o
       : (configOrigin || "400001").replace(/\D/g, "").slice(0, 6);
 
-  const expectedPickupDate = new Date();
-  expectedPickupDate.setDate(expectedPickupDate.getDate() + 1);
-  const dateStr = expectedPickupDate.toISOString().slice(0, 10);
+  const expectedPickupDate =
+    options.expectedPickupDate ||
+    (() => {
+      const dt = new Date();
+      dt.setDate(dt.getDate() + 1);
+      return dt.toISOString().slice(0, 10);
+    })();
 
-  const url = `${baseUrl}/api/dc/expected_tat?origin_pin=${origin}&destination_pin=${d}&mot=S&pdt=B2C&expected_pickup_date=${dateStr}`;
+  const cutoffHour = Number(getDelhiveryConfig().dispatchCutoffHour) || 14;
+  const expectedPd = `${expectedPickupDate} ${String(cutoffHour).padStart(2, "0")}:00`;
+
+  const url = `${baseUrl}/api/dc/expected_tat?origin_pin=${origin}&destination_pin=${d}&mot=S&pdt=B2C&expected_pd=${encodeURIComponent(expectedPd)}`;
   const res = await delhiveryRequest(url, {
     method: "GET",
     headers: authHeaders(),
@@ -216,8 +223,17 @@ async function getTAT(originPin, destPin, weightGm = 500) {
   if (data == null || typeof data !== "object") {
     return { success: true, tatDays: 5 };
   }
+
+  const nested = data.data && typeof data.data === "object" ? data.data : data;
   const days =
-    data.expected_tat_days ?? data.tat_days ?? data.tat ?? data.delivery_days;
+    nested.tat ??
+    nested.expected_tat_days ??
+    nested.tat_days ??
+    nested.delivery_days ??
+    data.expected_tat_days ??
+    data.tat_days ??
+    data.tat ??
+    data.delivery_days;
   if (days != null) {
     const num = Number(days);
     return {

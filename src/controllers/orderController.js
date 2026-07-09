@@ -40,6 +40,14 @@ const {
 } = require("../services/reviewReminderService");
 
 const { safeStatusUpdate } = require("../utils/orderStatusHelper");
+const { getDeliveryEstimate } = require("../services/delhivery/deliveryEstimate");
+
+const DELIVERY_ESTIMATE_ORDER_ATTRS = [
+  "estimatedDeliveryFrom",
+  "estimatedDeliveryTo",
+  "tatDaysAtOrder",
+  "deliveryEstimateLabel",
+];
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -241,6 +249,18 @@ async function createOrder(req, res) {
     const finalTotalAmount =
       Math.round((totalAmount - discountAmount) * 100) / 100;
 
+    let deliverySnapshot = null;
+    try {
+      deliverySnapshot = await getDeliveryEstimate({
+        destPin: String(pinCode),
+        paymentMode:
+          preferredPaymentMethod === "COD" ? "COD" : "PREPAID",
+        allowFallback: true,
+      });
+    } catch (estimateErr) {
+      console.error("[createOrder] Delivery estimate failed:", estimateErr.message);
+    }
+
     // Create order
     const order = await Order.create({
       userId,
@@ -263,6 +283,10 @@ async function createOrder(req, res) {
       state: state.trim(),
       pinCode: parseInt(pinCode),
       status: "pending",
+      estimatedDeliveryFrom: deliverySnapshot?.estimatedDeliveryFrom || null,
+      estimatedDeliveryTo: deliverySnapshot?.estimatedDeliveryTo || null,
+      tatDaysAtOrder: deliverySnapshot?.tatDays ?? null,
+      deliveryEstimateLabel: deliverySnapshot?.deliveryEstimateLabel || null,
     });
 
     const orderItems = await Promise.all(
@@ -350,6 +374,7 @@ async function createOrder(req, res) {
         "awbCode",
         "shipmentStatus",
         "shippingLabelUrl",
+        ...DELIVERY_ESTIMATE_ORDER_ATTRS,
         "createdAt",
         "updatedAt",
       ],
@@ -378,6 +403,15 @@ async function createOrder(req, res) {
       message: "Order created successfully. Proceed to payment.",
       order: completeOrder,
       nextStep: "payment",
+      deliveryEstimate: deliverySnapshot
+        ? {
+            label: deliverySnapshot.deliveryEstimateLabel,
+            from: deliverySnapshot.estimatedDeliveryFrom,
+            to: deliverySnapshot.estimatedDeliveryTo,
+            tatDays: deliverySnapshot.tatDays,
+            serviceable: deliverySnapshot.serviceable,
+          }
+        : null,
     });
   } catch (error) {
     console.error("Error creating order:", error);
@@ -456,6 +490,7 @@ async function getMyOrders(req, res) {
         "awbCode",
         "shipmentStatus",
         "shippingLabelUrl",
+        ...DELIVERY_ESTIMATE_ORDER_ATTRS,
         "createdAt",
         "updatedAt",
         "cancelledAt",
@@ -551,6 +586,7 @@ async function getOrderById(req, res) {
         "awbCode",
         "shipmentStatus",
         "shippingLabelUrl",
+        ...DELIVERY_ESTIMATE_ORDER_ATTRS,
         "createdAt",
         "updatedAt",
         "cancelledAt",

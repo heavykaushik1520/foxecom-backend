@@ -5,10 +5,13 @@
 const express = require('express');
 const router = express.Router();
 const { isAdmin } = require('../middleware/authMiddleware');
+const { deliveryEstimateRateLimit } = require('../middleware/deliveryEstimateRateLimit');
 const {
   getBulkWaybill,
   checkPincodeServiceability,
   getTat,
+  getDeliveryEstimateRoute,
+  getDispatchConfigRoute,
   createWarehouseRoute,
   createShipmentRoute,
   updateShipmentRoute,
@@ -25,6 +28,9 @@ router.get('/waybill/bulk', isAdmin, getBulkWaybill);
 router.get('/pincode/serviceability/:pincode', checkPincodeServiceability);
 router.get('/pincode/serviceability', checkPincodeServiceability);
 router.get('/tat', getTat);
+router.get('/delivery-estimate', deliveryEstimateRateLimit, getDeliveryEstimateRoute);
+router.get('/delivery-estimate/:pincode', deliveryEstimateRateLimit, getDeliveryEstimateRoute);
+router.get('/dispatch-config', getDispatchConfigRoute);
 
 router.post('/warehouse', isAdmin, createWarehouseRoute);
 

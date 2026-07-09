@@ -90,6 +90,26 @@ const Order = sequelize.define(
       allowNull: true,
       field: "shipping_label_url",
     },
+    estimatedDeliveryFrom: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: "estimated_delivery_from",
+    },
+    estimatedDeliveryTo: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: "estimated_delivery_to",
+    },
+    tatDaysAtOrder: {
+      type: DataTypes.TINYINT.UNSIGNED,
+      allowNull: true,
+      field: "tat_days_at_order",
+    },
+    deliveryEstimateLabel: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      field: "delivery_estimate_label",
+    },
 
     // Add after shippingLabelUrl in Order model:
     cancelledAt: {
