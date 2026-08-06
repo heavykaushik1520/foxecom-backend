@@ -41,6 +41,13 @@ const {
 
 const { safeStatusUpdate } = require("../utils/orderStatusHelper");
 const { getDeliveryEstimate } = require("../services/delhivery/deliveryEstimate");
+const { normalizePreferredPaymentMethod, getEffectiveRefundType, isCodOrder } = require("../utils/paymentMethodHelper");
+const { pendingOrderWhere, isPendingOrderExpired, getPendingOrderTtlMinutes, getPendingOrderCutoffDate } = require("../utils/pendingOrderHelper");
+const { validateCodEligibility } = require("../utils/codValidationHelper");
+const { fulfillOrder, restoreCartItemsForUser } = require("../services/orderFulfillmentService");
+const { buildPayuPaymentForOrder } = require("./paymentController");
+const { sequelize } = require("../config/db");
+const { Op } = require("sequelize");
 
 const DELIVERY_ESTIMATE_ORDER_ATTRS = [
   "estimatedDeliveryFrom",
@@ -48,6 +55,113 @@ const DELIVERY_ESTIMATE_ORDER_ATTRS = [
   "tatDaysAtOrder",
   "deliveryEstimateLabel",
 ];
+
+const CORE_ORDER_RESPONSE_ATTRS = [
+  "id",
+  "userId",
+  "totalAmount",
+  "subtotal",
+  "discountAmount",
+  "upiDiscountPercent",
+  "preferredPaymentMethod",
+  "orderNumberForUser",
+  "orderNumber",
+  "firstName",
+  "lastName",
+  "mobileNumber",
+  "emailAddress",
+  "flatNumber",
+  "buildingName",
+  "fullAddress",
+  "townOrCity",
+  "country",
+  "state",
+  "pinCode",
+  "status",
+  "payuTxnId",
+  "payuPaymentId",
+  "paymentMode",
+  "bankRefNo",
+  "payuStatus",
+  "payuError",
+  "shipmentId",
+  "awbCode",
+  "shipmentStatus",
+  "shippingLabelUrl",
+  "cancelledAt",
+  "refundType",
+  "refundAmount",
+  "refundGstDeducted",
+  "refundCourierDeducted",
+  "cancelReason",
+  "createdAt",
+  "updatedAt",
+];
+
+function sanitizeDateOnly(value) {
+  if (value == null || value === "") return null;
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function sanitizeTatDays(value) {
+  if (value == null || value === "") return null;
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function buildDeliveryFields(deliverySnapshot) {
+  return {
+    estimatedDeliveryFrom: sanitizeDateOnly(
+      deliverySnapshot?.estimatedDeliveryFrom,
+    ),
+    estimatedDeliveryTo: sanitizeDateOnly(deliverySnapshot?.estimatedDeliveryTo),
+    tatDaysAtOrder: sanitizeTatDays(deliverySnapshot?.tatDays),
+    deliveryEstimateLabel:
+      deliverySnapshot?.deliveryEstimateLabel?.slice(0, 64) || null,
+  };
+}
+
+async function fetchCompleteOrderForResponse(orderId) {
+  const include = [
+    {
+      model: OrderItem,
+      as: "orderItems",
+      include: [
+        {
+          model: Product,
+          as: "product",
+          include: [
+            {
+              model: ProductImage,
+              as: "images",
+              attributes: ["imageUrl"],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  try {
+    return await Order.findByPk(orderId, {
+      attributes: [...CORE_ORDER_RESPONSE_ATTRS, ...DELIVERY_ESTIMATE_ORDER_ATTRS],
+      include,
+    });
+  } catch (err) {
+    console.warn(
+      "[createOrder] Full order fetch failed, retrying without delivery columns:",
+      err.message,
+    );
+    return Order.findByPk(orderId, {
+      attributes: CORE_ORDER_RESPONSE_ATTRS,
+      include,
+    });
+  }
+}
 
 // Create a new order from the user's cart
 async function createOrder(req, res) {
@@ -75,9 +189,9 @@ async function createOrder(req, res) {
       preferredPaymentMethod: preferredPaymentMethodRaw,
     } = req.body;
 
-    const preferredPaymentMethod = String(
-      preferredPaymentMethodRaw || "OTHER",
-    ).toUpperCase();
+    const preferredPaymentMethod = normalizePreferredPaymentMethod(
+      preferredPaymentMethodRaw,
+    );
 
     // Comprehensive validation
     const validationErrors = [];
@@ -149,6 +263,52 @@ async function createOrder(req, res) {
         message: "Validation failed.",
         errors: validationErrors,
       });
+    }
+
+    await Order.update(
+      {
+        status: "cancelled",
+        cancelledAt: new Date(),
+        cancelReason: "payment_timeout",
+        refundType: "none",
+      },
+      {
+        where: {
+          userId,
+          status: "pending",
+          createdAt: { [Op.lt]: getPendingOrderCutoffDate() },
+        },
+      },
+    );
+
+    const existingPending = await Order.findOne({
+      where: pendingOrderWhere(userId),
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "createdAt", "preferredPaymentMethod"],
+    });
+
+    if (existingPending) {
+      const existingMethod = normalizePreferredPaymentMethod(
+        existingPending.preferredPaymentMethod,
+      );
+
+      // Payment method changed — cancel stale pending order and allow a fresh checkout.
+      if (existingMethod !== preferredPaymentMethod) {
+        await existingPending.update({
+          status: "cancelled",
+          cancelledAt: new Date(),
+          cancelReason: "payment_method_changed",
+          refundType: "none",
+        });
+      } else {
+        return res.status(409).json({
+          message:
+            "You already have a pending order. Complete payment or cancel it before placing a new one.",
+          existingOrderId: existingPending.id,
+          resume: true,
+          preferredPaymentMethod: existingPending.preferredPaymentMethod,
+        });
+      }
     }
 
     // Validate pincode for Indian addresses
@@ -249,6 +409,18 @@ async function createOrder(req, res) {
     const finalTotalAmount =
       Math.round((totalAmount - discountAmount) * 100) / 100;
 
+    if (preferredPaymentMethod === "COD") {
+      const codCheck = await validateCodEligibility({
+        pinCode,
+        totalAmount: finalTotalAmount,
+      });
+      if (!codCheck.eligible) {
+        return res.status(400).json({
+          message: codCheck.error || "Cash on Delivery is not available.",
+        });
+      }
+    }
+
     let deliverySnapshot = null;
     try {
       deliverySnapshot = await getDeliveryEstimate({
@@ -262,14 +434,14 @@ async function createOrder(req, res) {
     }
 
     // Create order
-    const order = await Order.create({
+    const orderBase = {
       userId,
       totalAmount: finalTotalAmount.toFixed(2),
       subtotal: totalAmount.toFixed(2),
       discountAmount: discountAmount.toFixed(2),
       upiDiscountPercent: discountPercent,
-      preferredPaymentMethod:
-        preferredPaymentMethod === "UPI" ? "UPI" : "OTHER",
+      preferredPaymentMethod,
+      paymentMode: preferredPaymentMethod === "COD" ? "COD" : null,
       orderNumberForUser: nextOrderNumber,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -283,126 +455,99 @@ async function createOrder(req, res) {
       state: state.trim(),
       pinCode: parseInt(pinCode),
       status: "pending",
-      estimatedDeliveryFrom: deliverySnapshot?.estimatedDeliveryFrom || null,
-      estimatedDeliveryTo: deliverySnapshot?.estimatedDeliveryTo || null,
-      tatDaysAtOrder: deliverySnapshot?.tatDays ?? null,
-      deliveryEstimateLabel: deliverySnapshot?.deliveryEstimateLabel || null,
-    });
+    };
 
-    const orderItems = await Promise.all(
-      cart.products.map(async (product) => {
-        const selectedModelId = product.cartItem.selectedModelId || null;
+    const deliveryFields = buildDeliveryFields(deliverySnapshot);
 
-        let priceAtPurchase = product.discountPrice
-          ? parseFloat(product.discountPrice)
-          : parseFloat(product.price);
-
-        let selectedModelName = null;
-
-        if (selectedModelId) {
-          const availableModel = await ProductAvailableModels.findOne({
-            where: { productId: product.id, modelId: selectedModelId },
-            include: [{ model: MobileModels, as: "model" }],
-          });
-          if (
-            availableModel != null &&
-            availableModel.priceOverride != null &&
-            availableModel.priceOverride !== ""
-          ) {
-            priceAtPurchase = parseFloat(availableModel.priceOverride);
-          }
-          selectedModelName = availableModel?.model?.name || null;
+    let order;
+    try {
+      await sequelize.transaction(async (transaction) => {
+        try {
+          order = await Order.create(
+            { ...orderBase, ...deliveryFields },
+            { transaction },
+          );
+        } catch (createErr) {
+          const msg = String(createErr?.message || "");
+          const sqlMsg = String(
+            createErr?.parent?.sqlMessage || createErr?.parent?.message || "",
+          );
+          const combined = `${msg} ${sqlMsg}`;
+          const missingOptionalCols =
+            combined.includes("estimated_delivery") ||
+            combined.includes("tat_days_at_order") ||
+            combined.includes("delivery_estimate_label");
+          if (!missingOptionalCols) throw createErr;
+          console.warn(
+            "[createOrder] Delivery estimate columns missing — run npm run migrate:delivery-estimate",
+          );
+          order = await Order.create(orderBase, { transaction });
         }
 
-        return {
-          orderId: order.id,
-          productId: product.id,
-          quantity: product.cartItem.quantity,
-          priceAtPurchase,
-          selectedModelId,
-          selectedModelName,
-        };
-      }),
-    );
+        const orderItems = await Promise.all(
+          cart.products.map(async (product) => {
+            const selectedModelId = product.cartItem.selectedModelId || null;
 
-    await OrderItem.bulkCreate(orderItems);
+            let priceAtPurchase = product.discountPrice
+              ? parseFloat(product.discountPrice)
+              : parseFloat(product.price);
 
-    // Set display order number: SKU_LAST4/DDMMYYYY/id (e.g. 1663/14032026/50)
-    const itemsWithProduct = await OrderItem.findAll({
-      where: { orderId: order.id },
-      include: [{ model: Product, as: "product", attributes: ["sku"] }],
-    });
-    const firstSku = itemsWithProduct[0]?.product?.sku ?? null;
-    const orderNumber = buildOrderNumber(order.id, order.createdAt, firstSku);
-    await order.update({ orderNumber });
+            let selectedModelName = null;
 
-    // Clear cart after successful order creation
-    await CartItem.destroy({ where: { cartId: cart.id } });
+            if (selectedModelId) {
+              const availableModel = await ProductAvailableModels.findOne({
+                where: { productId: product.id, modelId: selectedModelId },
+                include: [{ model: MobileModels, as: "model" }],
+              });
+              if (
+                availableModel != null &&
+                availableModel.priceOverride != null &&
+                availableModel.priceOverride !== ""
+              ) {
+                priceAtPurchase = parseFloat(availableModel.priceOverride);
+              }
+              selectedModelName = availableModel?.model?.name || null;
+            }
+
+            return {
+              orderId: order.id,
+              productId: product.id,
+              quantity: product.cartItem.quantity,
+              priceAtPurchase,
+              selectedModelId,
+              selectedModelName,
+            };
+          }),
+        );
+
+        await OrderItem.bulkCreate(orderItems, { transaction });
+
+        const itemsWithProduct = await OrderItem.findAll({
+          where: { orderId: order.id },
+          include: [{ model: Product, as: "product", attributes: ["sku"] }],
+          transaction,
+        });
+        const firstSku = itemsWithProduct[0]?.product?.sku ?? null;
+        const orderNumber = buildOrderNumber(order.id, order.createdAt, firstSku);
+        await order.update({ orderNumber }, { transaction });
+      });
+    } catch (createTxnErr) {
+      throw createTxnErr;
+    }
+
+    // Cart is cleared only after payment/COD confirmation (see orderFulfillmentService).
 
     // Fetch complete order with items for response
-    // Explicitly select only existing columns to avoid database errors
-    const completeOrder = await Order.findByPk(order.id, {
-      attributes: [
-        "id",
-        "userId",
-        "totalAmount",
-        "subtotal",
-        "discountAmount",
-        "upiDiscountPercent",
-        "preferredPaymentMethod",
-        "orderNumberForUser",
-        "orderNumber",
-        "firstName",
-        "lastName",
-        "mobileNumber",
-        "emailAddress",
-        "flatNumber",
-        "buildingName",
-        "fullAddress",
-        "townOrCity",
-        "country",
-        "state",
-        "pinCode",
-        "status",
-        "payuTxnId",
-        "payuPaymentId",
-        "paymentMode",
-        "bankRefNo",
-        "payuStatus",
-        "payuError",
-        "shipmentId",
-        "awbCode",
-        "shipmentStatus",
-        "shippingLabelUrl",
-        ...DELIVERY_ESTIMATE_ORDER_ATTRS,
-        "createdAt",
-        "updatedAt",
-      ],
-      include: [
-        {
-          model: OrderItem,
-          as: "orderItems",
-          include: [
-            {
-              model: Product,
-              as: "product",
-              include: [
-                {
-                  model: ProductImage,
-                  as: "images",
-                  attributes: ["imageUrl"],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    });
+    const completeOrder = await fetchCompleteOrderForResponse(order.id);
 
     res.status(201).json({
-      message: "Order created successfully. Proceed to payment.",
+      message:
+        preferredPaymentMethod === "COD"
+          ? "Order created. Confirm Cash on Delivery to place your order."
+          : "Order created successfully. Proceed to payment.",
       order: completeOrder,
-      nextStep: "payment",
+      nextStep: preferredPaymentMethod === "COD" ? "confirm_cod" : "payment",
+      pendingOrderTtlMinutes: getPendingOrderTtlMinutes(),
       deliveryEstimate: deliverySnapshot
         ? {
             label: deliverySnapshot.deliveryEstimateLabel,
@@ -423,9 +568,15 @@ async function createOrder(req, res) {
       });
     }
 
+    const detail =
+      error?.parent?.sqlMessage ||
+      error?.parent?.message ||
+      error?.message ||
+      "Unknown error";
+
     res.status(500).json({
-      message: "Failed to create order.",
-      error: error.message,
+      message: detail,
+      error: detail,
     });
   }
 }
@@ -552,75 +703,21 @@ async function getOrderById(req, res) {
       return res.status(400).json({ message: "Invalid or missing order id." });
     }
 
-    const order = await Order.findOne({
+    const owned = await Order.findOne({
       where: { id, userId },
-      attributes: [
-        "id",
-        "userId",
-        "totalAmount",
-        "subtotal",
-        "discountAmount",
-        "upiDiscountPercent",
-        "preferredPaymentMethod",
-        "orderNumberForUser",
-        "orderNumber",
-        "firstName",
-        "lastName",
-        "mobileNumber",
-        "emailAddress",
-        "flatNumber",
-        "buildingName",
-        "fullAddress",
-        "townOrCity",
-        "country",
-        "state",
-        "pinCode",
-        "status",
-        "payuTxnId",
-        "payuPaymentId",
-        "paymentMode",
-        "bankRefNo",
-        "payuStatus",
-        "payuError",
-        "shipmentId",
-        "awbCode",
-        "shipmentStatus",
-        "shippingLabelUrl",
-        ...DELIVERY_ESTIMATE_ORDER_ATTRS,
-        "createdAt",
-        "updatedAt",
-        "cancelledAt",
-        "refundType",
-        "refundAmount",
-        "refundGstDeducted",
-        "refundCourierDeducted",
-        "cancelReason",
-      ],
-      include: [
-        {
-          model: OrderItem,
-          as: "orderItems",
-          include: [
-            {
-              model: Product,
-              as: "product",
-              include: [
-                {
-                  model: ProductImage,
-                  as: "images",
-                  attributes: ["imageUrl"],
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      attributes: ["id"],
     });
 
-    if (!order) {
+    if (!owned) {
       return res
         .status(404)
         .json({ message: "Order not found or does not belong to you." });
+    }
+
+    const order = await fetchCompleteOrderForResponse(id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
     }
 
     // Calculate order summary
@@ -691,8 +788,9 @@ async function cancelOrder(req, res) {
     }
 
     // ── Rule 3: compute partial refund suggestion ──────────────────────────
+    const effectiveRefundType = getEffectiveRefundType(order, policy.refundType);
     const refund =
-      policy.refundType === "partial"
+      effectiveRefundType === "partial"
         ? calculatePartialRefund(order.totalAmount)
         : null;
 
@@ -731,7 +829,7 @@ async function cancelOrder(req, res) {
       status: "cancelled",
       cancelledAt: new Date(),
       cancelReason: getCancelReasonCode(policy.rule),
-      refundType: policy.refundType,
+      refundType: effectiveRefundType,
       shipmentStatus: order.awbCode ? "cancelled" : order.shipmentStatus,
       ...(refund && {
         refundAmount: refund.refundAmount,
@@ -747,7 +845,11 @@ async function cancelOrder(req, res) {
       try {
         const plainOrder =
           typeof order.toJSON === "function" ? order.toJSON() : { ...order };
-        await sendCancellationEmails(plainOrder, policy, refund);
+        await sendCancellationEmails(
+          plainOrder,
+          { ...policy, refundType: effectiveRefundType },
+          refund,
+        );
       } catch (err) {
         console.error("[cancelOrder] Email send failed:", err.message);
       }
@@ -761,8 +863,8 @@ async function cancelOrder(req, res) {
         orderId: order.id,
         orderRef: order.orderNumber || `#${order.id}`,
         rule: policy.rule,
-        refundType: policy.refundType,
-        ...(refund && {
+        refundType: effectiveRefundType,
+        ...(refund && effectiveRefundType !== "none" && {
           estimatedRefund: refund.refundAmount,
           deductions: {
             gst: refund.gstDeducted,
@@ -785,6 +887,261 @@ async function cancelOrder(req, res) {
     res
       .status(500)
       .json({ message: "Failed to cancel order.", error: error.message });
+  }
+}
+
+async function confirmCodOrder(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    if (!id || isNaN(parseInt(id, 10))) {
+      return res.status(400).json({ message: "Invalid or missing order id." });
+    }
+
+    const order = await Order.findOne({ where: { id, userId } });
+    if (!order) {
+      return res
+        .status(404)
+        .json({ message: "Order not found or does not belong to you." });
+    }
+
+    if (order.status === "processing" || order.status === "paid") {
+      return res.status(200).json({
+        success: true,
+        message: "Order is already confirmed.",
+        orderId: order.id,
+        alreadyConfirmed: true,
+      });
+    }
+
+    if (order.status !== "pending") {
+      return res.status(400).json({
+        message: `Order cannot be confirmed in status "${order.status}".`,
+      });
+    }
+
+    if (isPendingOrderExpired(order)) {
+      return res.status(410).json({
+        message:
+          "This order has expired. Please place a new order from your cart.",
+        expired: true,
+      });
+    }
+
+    const method = normalizePreferredPaymentMethod(order.preferredPaymentMethod);
+    if (method !== "COD" && !isCodOrder(order)) {
+      return res.status(400).json({
+        message: "This order is not a Cash on Delivery order.",
+      });
+    }
+
+    const codCheck = await validateCodEligibility({
+      pinCode: order.pinCode,
+      totalAmount: order.totalAmount,
+    });
+    if (!codCheck.eligible) {
+      return res.status(400).json({
+        message: codCheck.error || "Cash on Delivery is not available.",
+      });
+    }
+
+    const statusUpdated = await safeStatusUpdate(order, "processing", {
+      preferredPaymentMethod: "COD",
+      paymentMode: "COD",
+    });
+
+    if (!statusUpdated) {
+      const refreshed = await Order.findByPk(order.id);
+      if (
+        refreshed &&
+        (refreshed.status === "processing" || refreshed.status === "paid")
+      ) {
+        return res.status(200).json({
+          success: true,
+          message: "Order is already confirmed.",
+          orderId: refreshed.id,
+          alreadyConfirmed: true,
+        });
+      }
+      return res.status(409).json({
+        message: "Could not confirm order. Please try again.",
+      });
+    }
+
+    setImmediate(() => {
+      fulfillOrder(order.id).catch((err) =>
+        console.error("[confirmCodOrder] Fulfillment failed:", err.message),
+      );
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Order placed successfully with Cash on Delivery.",
+      orderId: order.id,
+      paymentMethod: "COD",
+    });
+  } catch (error) {
+    console.error("[confirmCodOrder] Error:", error);
+    res.status(500).json({
+      message: "Failed to confirm Cash on Delivery order.",
+      error: error.message,
+    });
+  }
+}
+
+async function resumePayment(req, res) {
+  try {
+    const { id } = req.params;
+    const { preferredPaymentMethod: methodRaw } = req.body || {};
+    const userId = req.user.userId;
+
+    if (!id || isNaN(parseInt(id, 10))) {
+      return res.status(400).json({ message: "Invalid or missing order id." });
+    }
+
+    const order = await Order.findOne({ where: { id, userId } });
+    if (!order) {
+      return res
+        .status(404)
+        .json({ message: "Order not found or does not belong to you." });
+    }
+
+    if (isCodOrder(order)) {
+      return res.status(400).json({
+        message:
+          "This is a Cash on Delivery order. Use confirm COD instead of online payment.",
+      });
+    }
+
+    if (order.status === "paid") {
+      return res.status(400).json({ message: "Order is already paid." });
+    }
+
+    if (isPendingOrderExpired(order)) {
+      return res.status(410).json({
+        message:
+          "This order has expired. Please place a new order from your cart.",
+        expired: true,
+      });
+    }
+
+    if (methodRaw) {
+      const nextMethod = normalizePreferredPaymentMethod(methodRaw);
+      if (nextMethod === "COD") {
+        return res.status(400).json({
+          message:
+            "Cannot resume online payment as Cash on Delivery. Place a new COD order instead.",
+        });
+      }
+      if (nextMethod !== normalizePreferredPaymentMethod(order.preferredPaymentMethod)) {
+        const subtotal = parseFloat(order.subtotal || order.totalAmount);
+        const discountPercent = getUpiDiscountPercent(
+          order.orderNumberForUser,
+          nextMethod,
+        );
+        const discountAmount = (subtotal * discountPercent) / 100;
+        const finalTotalAmount =
+          Math.round((subtotal - discountAmount) * 100) / 100;
+
+        await order.update({
+          preferredPaymentMethod: nextMethod,
+          discountAmount: discountAmount.toFixed(2),
+          upiDiscountPercent: discountPercent,
+          totalAmount: finalTotalAmount.toFixed(2),
+        });
+        order.preferredPaymentMethod = nextMethod;
+        order.totalAmount = finalTotalAmount.toFixed(2);
+        order.discountAmount = discountAmount.toFixed(2);
+        order.upiDiscountPercent = discountPercent;
+      }
+    }
+
+    const result = await buildPayuPaymentForOrder(order);
+
+    return res.status(200).json({
+      message: "Payment resumed successfully.",
+      orderId: result.orderId,
+      paymentFormHtml: result.paymentFormHtml,
+    });
+  } catch (error) {
+    console.error("[resumePayment] Error:", error);
+    res.status(400).json({
+      message: error.message || "Failed to resume payment.",
+    });
+  }
+}
+
+async function restoreCartFromOrder(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    if (!id || isNaN(parseInt(id, 10))) {
+      return res.status(400).json({ message: "Invalid or missing order id." });
+    }
+
+    const order = await Order.findOne({
+      where: { id, userId },
+      include: [{ model: OrderItem, as: "orderItems" }],
+    });
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ message: "Order not found or does not belong to you." });
+    }
+
+    const restorable =
+      order.status === "pending" ||
+      (order.status === "cancelled" &&
+        order.cancelReason === "payment_timeout");
+
+    if (!restorable) {
+      return res.status(400).json({
+        message:
+          "Cart can only be restored from unpaid or expired pending orders.",
+      });
+    }
+
+    if (!order.orderItems || order.orderItems.length === 0) {
+      return res.status(400).json({
+        message: "This order has no items to restore.",
+      });
+    }
+
+    const cart = await Cart.findOne({ where: { userId } });
+    if (cart) {
+      const existingCount = await CartItem.count({ where: { cartId: cart.id } });
+      if (existingCount > 0) {
+        return res.status(200).json({
+          success: true,
+          message: "Your cart already has items — no restore needed.",
+          alreadyInCart: true,
+          restoredCount: 0,
+          skippedCount: 0,
+        });
+      }
+    }
+
+    const { restored, skipped } = await restoreCartItemsForUser(
+      userId,
+      order.orderItems,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Restored ${restored.length} item(s) to your cart.`,
+      restoredCount: restored.length,
+      skippedCount: skipped.length,
+      skipped,
+    });
+  } catch (error) {
+    console.error("[restoreCartFromOrder] Error:", error);
+    res.status(500).json({
+      message: "Failed to restore cart from order.",
+      error: error.message,
+    });
   }
 }
 
@@ -1091,6 +1448,9 @@ module.exports = {
   getMyOrders,
   getOrderById,
   cancelOrder,
+  confirmCodOrder,
+  resumePayment,
+  restoreCartFromOrder,
   trackOrderStatus,
   getOrderInvoicePdf,
   getOrderShippingLabel,

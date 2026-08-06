@@ -8,6 +8,9 @@ const {
   getMyOrders,
   getOrderById,
   cancelOrder,
+  confirmCodOrder,
+  resumePayment,
+  restoreCartFromOrder,
   trackOrderStatus,
   getOrderInvoicePdf,
   getOrderShippingLabel,
@@ -18,6 +21,9 @@ const {
 router.post("/order", isUser, createOrder);
 router.get("/order", isUser, getMyOrders);
 router.get("/order/:id", isUser, getOrderById);
+router.post("/order/:id/confirm-cod", isUser, confirmCodOrder);
+router.post("/order/:id/resume-payment", isUser, resumePayment);
+router.post("/order/:id/restore-cart", isUser, restoreCartFromOrder);
 router.get(
   "/orders/:id/shipping-label/download",
   isUser,

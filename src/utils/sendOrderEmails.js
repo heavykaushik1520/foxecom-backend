@@ -2,6 +2,7 @@
 const nodemailer = require("nodemailer");
 const { createInvoicePdf } = require("./invoiceGenerator");
 const { getOrderDisplayId, buildOrderNumber } = require("./orderNumberHelper");
+const { getPaymentMethodLabel, isCodOrder } = require("./paymentMethodHelper");
 
 // Create reusable transporter
 const createTransporter = () => {
@@ -54,6 +55,51 @@ const orderItemLineTitle = (item) => {
   return parts.length ? parts.join(" — ") : "Product";
 };
 
+const getEmailPaymentMode = (order) => getPaymentMethodLabel(order);
+
+const getEmailPaymentIdDisplay = (order) => {
+  if (isCodOrder(order)) return "Pay on delivery";
+  return order.payuPaymentId || order.payuTxnId || "N/A";
+};
+
+const getEmailOrderStatusLabel = (order) => {
+  if (isCodOrder(order)) return "CONFIRMED";
+  if (order.status === "paid" || order.status === "processing") return "PAID";
+  return String(order.status || "pending").toUpperCase();
+};
+
+const getCustomerIntroHtml = (order) => {
+  if (isCodOrder(order)) {
+    return `Your order has been successfully placed with <strong>Cash on Delivery</strong>. Please keep <strong>${formatCurrency(order.totalAmount)}</strong> ready when your order is delivered.`;
+  }
+  return `Your order has been successfully placed and payment has been received. We're preparing your order for shipment.`;
+};
+
+const getCustomerIntroText = (order) => {
+  if (isCodOrder(order)) {
+    return `Your order has been successfully placed with Cash on Delivery. Please keep ${formatCurrency(order.totalAmount)} ready when your order is delivered.`;
+  }
+  return `Your order has been successfully placed and payment has been received. We're preparing your order for shipment.`;
+};
+
+const getAdminAlertBanner = (order) => {
+  if (isCodOrder(order)) {
+    return {
+      bg: "#e67e22",
+      text: `📦 COD ORDER — Collect ${formatCurrency(order.totalAmount)} on delivery`,
+    };
+  }
+  return {
+    bg: "#27ae60",
+    text: `✅ PAYMENT SUCCESSFUL — Mode: ${getEmailPaymentMode(order)}`,
+  };
+};
+
+const getAdminEmailSubjectSuffix = (order) => {
+  if (isCodOrder(order)) return "Cash on Delivery";
+  return `Payment Received (${getEmailPaymentMode(order)})`;
+};
+
 // Generate product rows HTML for email
 const generateProductRowsHTML = (orderItems) => {
   return orderItems
@@ -83,6 +129,8 @@ const getCustomerEmailHTML = (order, orderItems) => {
   const productRows = generateProductRowsHTML(orderItems);
   const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
   const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+  const paymentMode = getEmailPaymentMode(order);
+  const paymentIdDisplay = getEmailPaymentIdDisplay(order);
 
   return `
 <!DOCTYPE html>
@@ -113,7 +161,7 @@ const getCustomerEmailHTML = (order, orderItems) => {
                 Hi <strong>${order.firstName}</strong>,
               </p>
               <p style="color: #555; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">
-                Your order has been successfully placed and payment has been received. We're preparing your order for shipment.
+                ${getCustomerIntroHtml(order)}
               </p>
               
               <!-- Order Summary Box -->
@@ -135,8 +183,20 @@ const getCustomerEmailHTML = (order, orderItems) => {
                       </tr>
                       <tr>
                         <td style="padding: 5px 0;">
-                          <span style="color: #666; font-size: 14px;">Payment ID:</span>
-                          <strong style="color: #333; font-size: 14px; float: right;">${order.payuPaymentId || order.payuTxnId || "N/A"}</strong>
+                          <span style="color: #666; font-size: 14px;">Status:</span>
+                          <strong style="color: #333; font-size: 14px; float: right;">${getEmailOrderStatusLabel(order)}</strong>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 5px 0;">
+                          <span style="color: #666; font-size: 14px;">Mode:</span>
+                          <strong style="color: #333; font-size: 14px; float: right;">${paymentMode}</strong>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 5px 0;">
+                          <span style="color: #666; font-size: 14px;">${isCodOrder(order) ? "Payment:" : "Payment ID:"}</span>
+                          <strong style="color: #333; font-size: 14px; float: right;">${paymentIdDisplay}</strong>
                         </td>
                       </tr>
                     </table>
@@ -233,6 +293,9 @@ const getAdminEmailHTML = (order, orderItems) => {
   const productRows = generateProductRowsHTML(orderItems);
   const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
   const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+  const paymentMode = getEmailPaymentMode(order);
+  const paymentIdDisplay = getEmailPaymentIdDisplay(order);
+  const alertBanner = getAdminAlertBanner(order);
 
   return `
 <!DOCTYPE html>
@@ -258,9 +321,9 @@ const getAdminEmailHTML = (order, orderItems) => {
           
           <!-- Alert Banner -->
           <tr>
-            <td style="background-color: #27ae60; padding: 15px; text-align: center;">
+            <td style="background-color: ${alertBanner.bg}; padding: 15px; text-align: center;">
               <span style="color: #fff; font-size: 14px; font-weight: bold;">
-                ✅ PAYMENT SUCCESSFUL - Ready to Process
+                ${alertBanner.text}
               </span>
             </td>
           </tr>
@@ -298,10 +361,14 @@ const getAdminEmailHTML = (order, orderItems) => {
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Status:</td>
                         <td style="padding: 5px 0;">
-                          <span style="background-color: #27ae60; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
-                            PAID
+                          <span style="background-color: ${isCodOrder(order) ? "#e67e22" : "#27ae60"}; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                            ${getEmailOrderStatusLabel(order)}
                           </span>
                         </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Mode:</td>
+                        <td style="padding: 5px 0; color: #333; font-size: 13px; font-weight: bold;">${paymentMode}</td>
                       </tr>
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Total Items:</td>
@@ -315,13 +382,13 @@ const getAdminEmailHTML = (order, orderItems) => {
                     </h3>
                     <table role="presentation" style="width: 100%;">
                       <tr>
-                        <td style="padding: 5px 0; color: #666; font-size: 13px;">Payment ID:</td>
-                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.payuPaymentId || order.payuTxnId || "N/A"}</td>
+                        <td style="padding: 5px 0; color: #666; font-size: 13px;">${isCodOrder(order) ? "Payment:" : "Payment ID:"}</td>
+                        <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${paymentIdDisplay}</td>
                       </tr>
-                      <tr>
+                      ${!isCodOrder(order) ? `<tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Transaction ID:</td>
                         <td style="padding: 5px 0; color: #333; font-size: 13px; word-break: break-all;">${order.payuTxnId || "N/A"}</td>
-                      </tr>
+                      </tr>` : ""}
                       <tr>
                         <td style="padding: 5px 0; color: #666; font-size: 13px;">Total Amount:</td>
                         <td style="padding: 5px 0; color: #27ae60; font-size: 16px; font-weight: bold;">${formatCurrency(order.totalAmount)}</td>
@@ -466,19 +533,23 @@ const getCustomerEmailText = (order, orderItems) => {
     .join("\n");
 
   const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+  const paymentMode = getEmailPaymentMode(order);
+  const paymentIdDisplay = getEmailPaymentIdDisplay(order);
 
   return `
 ORDER CONFIRMATION
 
 Hi ${order.firstName},
 
-Thank you for your order! Your payment has been successfully received.
+${getCustomerIntroText(order)}
 
 ORDER DETAILS (use Order Number for reference)
 -------------
 Order Number: #${orderDisplayId}
 Order Date: ${formatDate(order.createdAt)}
-Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
+Status: ${getEmailOrderStatusLabel(order)}
+Mode: ${paymentMode}
+${isCodOrder(order) ? "Payment" : "Payment ID"}: ${paymentIdDisplay}
 
 PRODUCTS (${totalItems} items)
 ${productList}
@@ -516,9 +587,11 @@ const getAdminEmailText = (order, orderItems) => {
     .join("\n");
 
   const orderDisplayId = getSafeOrderDisplayId(order, orderItems);
+  const paymentMode = getEmailPaymentMode(order);
+  const paymentIdDisplay = getEmailPaymentIdDisplay(order);
 
   return `
-NEW ORDER RECEIVED - PAYMENT SUCCESSFUL
+NEW ORDER RECEIVED${isCodOrder(order) ? " — CASH ON DELIVERY" : " — PAYMENT SUCCESSFUL"}
 
 ORDER NUMBER (use this for reference): #${orderDisplayId}
 -------------------------------------
@@ -527,14 +600,15 @@ ORDER INFORMATION
 -----------------
 Order Number: #${orderDisplayId}
 Order Date: ${formatDate(order.createdAt)}
-Status: PAID
+Status: ${getEmailOrderStatusLabel(order)}
+Mode: ${paymentMode}
 Total Items: ${totalItems}
 Total Amount: ${formatCurrency(order.totalAmount)}
 
 PAYMENT DETAILS
 ---------------
-Payment ID: ${order.payuPaymentId || order.payuTxnId || "N/A"}
-Transaction ID: ${order.payuTxnId || "N/A"}
+${isCodOrder(order) ? "Payment" : "Payment ID"}: ${paymentIdDisplay}
+${!isCodOrder(order) ? `Transaction ID: ${order.payuTxnId || "N/A"}` : "Collect payment on delivery"}
 
 CUSTOMER INFORMATION
 --------------------
@@ -598,7 +672,9 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
     const customerMailOptions = {
       from: `"Foxecom" <${fromEmail}>`,
       to: order.emailAddress,
-      subject: `Order Confirmed! Your Order #${orderDisplayId} has been placed`,
+      subject: isCodOrder(order)
+        ? `Order Confirmed! Your COD Order #${orderDisplayId} has been placed`
+        : `Order Confirmed! Your Order #${orderDisplayId} has been placed`,
       text: getCustomerEmailText(order, orderItems),
       html: getCustomerEmailHTML(order, orderItems),
       attachments: invoiceBuffer
@@ -626,7 +702,7 @@ const sendOrderEmails = async (order, orderItems, adminEmail = null) => {
       const adminMailOptions = {
         from: `"Foxecom Orders" <${fromEmail}>`,
         to: adminRecipient,
-        subject: `🛒 New Order #${orderDisplayId} - ${formatCurrency(order.totalAmount)} - Payment Received`,
+        subject: `🛒 New Order #${orderDisplayId} - ${formatCurrency(order.totalAmount)} - ${getAdminEmailSubjectSuffix(order)}`,
         text: getAdminEmailText(order, orderItems),
         html: getAdminEmailHTML(order, orderItems),
         attachments: invoiceBuffer

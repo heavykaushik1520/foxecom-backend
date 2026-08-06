@@ -30,6 +30,8 @@ const BlogTagMap = require("./blogTagMap");
 const BlogRelatedProduct = require("./blogRelatedProduct");
 const Marquee = require("./marquee");
 const ProductGroup = require("./productGroup");
+const SiteLogo = require("./siteLogo");
+const SiteButtonTheme = require("./siteButtonTheme");
 
 const models = {
   Admin,
@@ -64,6 +66,8 @@ const models = {
   BlogRelatedProduct,
   Marquee,
   ProductGroup,
+  SiteLogo,
+  SiteButtonTheme,
 };
 
 // Apply associations

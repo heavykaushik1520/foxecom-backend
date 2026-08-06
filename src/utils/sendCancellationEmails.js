@@ -45,7 +45,9 @@ async function sendCancellationEmails(order, policyResult, refund = null) {
 
   // ── Customer email ────────────────────────────────────────────────────────
   const refundBlock =
-    policyResult.refundType === "full"
+    policyResult.refundType === "none"
+      ? `<p style="color:#666">No payment was collected for this order, so no refund is due.</p>`
+      : policyResult.refundType === "full"
       ? `<p style="color:#0f6e56;font-weight:500">
            Your full refund of <strong>${fmt(order.totalAmount)}</strong> will be
            processed within 5–7 business days to your original payment method.

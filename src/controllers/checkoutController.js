@@ -4,6 +4,13 @@ const { Cart, CartItem, Product, ProductImage, Order, OrderItem, Category } = re
 const { addCategorySpecificDetailsToProducts } = require("../utils/categoryDetailsHelper");
 const { resolveCartLineUnitPrice } = require("../utils/cartLinePriceHelper");
 const { getPaidOrderCount, getUpiDiscountPercent } = require("../utils/upiDiscountHelper");
+const { normalizePreferredPaymentMethod } = require("../utils/paymentMethodHelper");
+const {
+  isCodEnabled,
+  getCodMaxAmount,
+  getCodMinAmount,
+  getPendingOrderTtlMinutes,
+} = require("../config/codConfig");
 
 
 // Get checkout summary (cart validation + total calculation)
@@ -11,7 +18,9 @@ const { getPaidOrderCount, getUpiDiscountPercent } = require("../utils/upiDiscou
 async function getCheckoutSummary(req, res) {
   try {
     const userId = req.user.userId;
-    const preferredPaymentMethod = (req.query.preferredPaymentMethod || "OTHER").toUpperCase();
+    const preferredPaymentMethod = normalizePreferredPaymentMethod(
+      req.query.preferredPaymentMethod,
+    );
     const isUpi = preferredPaymentMethod === "UPI";
 
     // Get user's cart with products
@@ -118,12 +127,16 @@ async function getCheckoutSummary(req, res) {
         subtotal: totalAmount.toFixed(2),
         discountAmount: discountAmount.toFixed(2),
         upiDiscountPercent: discountPercent,
-        preferredPaymentMethod: isUpi ? "UPI" : "OTHER",
+        preferredPaymentMethod,
         purchaseCount,
         nextOrderNumber,
         discountLabel: discountPercent > 0 ? `${discountPercent}% UPI discount (${nextOrderNumber === 2 ? "2nd" : "3rd"} purchase)` : null,
         shipping: shippingCost.toFixed(2),
         totalAmount: finalTotal.toFixed(2),
+        codEnabled: isCodEnabled(),
+        codMaxAmount: getCodMaxAmount(),
+        codMinAmount: getCodMinAmount(),
+        pendingOrderTtlMinutes: getPendingOrderTtlMinutes(),
         products: await Promise.all(
           cart.products.map(async (product) => {
             const productPrice = await resolveCartLineUnitPrice(
@@ -274,8 +287,16 @@ async function getPaymentMethods(req, res) {
         name: "PayU",
         description: "Credit/Debit Card, UPI, Net Banking, Wallets",
         icon: "credit-card",
-        enabled: true
-      }
+        enabled: true,
+      },
+      {
+        id: "cod",
+        name: "Cash on Delivery",
+        description: "Pay when your order is delivered",
+        icon: "cash",
+        enabled: isCodEnabled(),
+        maxAmount: getCodMaxAmount(),
+      },
     ];
 
     res.status(200).json({

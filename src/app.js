@@ -54,6 +54,8 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const visitorRoutes = require('./routes/visitorRoutes');
 const adminVisitorRoutes = require('./routes/adminVisitorRoutes');
 const blogRoutes = require('./routes/blogRoutes');
+const siteLogoRoutes = require('./routes/siteLogoRoutes');
+const siteButtonThemeRoutes = require('./routes/siteButtonThemeRoutes');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -236,6 +238,12 @@ app.use('/api/admin', adminVisitorRoutes);
 // Blog module routes (public + admin)
 app.use('/api', blogRoutes);
 
+// Site logo CMS – public GET, admin update
+app.use('/api', siteLogoRoutes);
+
+// Site button theme CMS – public GET published, admin draft/publish
+app.use('/api', siteButtonThemeRoutes);
+
 // Define your routes here
 app.get('/', (req, res) => {
   res.send('Hello from your Node.js Express app in Devrukh!');
@@ -251,5 +259,8 @@ app.use((err, req, res, next) => {
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}.`);
 });
+
+const { startPendingOrderExpiryJob } = require("./jobs/pendingOrderExpiryJob");
+startPendingOrderExpiryJob();
 
 module.exports = app;

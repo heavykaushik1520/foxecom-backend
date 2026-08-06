@@ -1,21 +1,26 @@
 // src/controllers/paymentController.js - PayU India via official NodeJS SDK
-const { Order, OrderItem, Product } = require("../models");
+const { Order } = require("../models");
 const payuConfig = require("../config/payu");
-const { sendOrderEmails } = require("../utils/sendOrderEmails");
-const { sendShipmentEmailToCustomer } = require("../utils/sendOrderEmails");
-const { createOrderShipment } = require("../services/delhivery/orderShipment");
-const { getDelhiveryConfig } = require("../services/delhivery/delhiveryApi");
-const {
-  createReviewRemindersForDeliveredOrder,
-} = require("../services/reviewReminderService");
 const { safeStatusUpdate } = require("../utils/orderStatusHelper");
+const { fulfillOrder } = require("../services/orderFulfillmentService");
+const {
+  normalizePreferredPaymentMethod,
+  isCodOrder,
+} = require("../utils/paymentMethodHelper");
+const { isPendingOrderExpired } = require("../utils/pendingOrderHelper");
 
 function verifyPayuResponseHash(params) {
   const client = payuConfig.getPayuClient();
   return client.hasher.validateResponseHash(params);
 }
 
-function mapPayuParamsToOrder(params) {
+function getExistingPayuMeta(order) {
+  const raw = order?.payuResponse;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+function mapPayuParamsToOrder(params, order = null) {
+  const existingMeta = order ? getExistingPayuMeta(order) : {};
   return {
     payuTxnId: params.txnid || null,
     payuPaymentId: params.mihpayid || params.paymentId || null,
@@ -24,6 +29,7 @@ function mapPayuParamsToOrder(params) {
     payuStatus: params.status || null,
     payuError: params.error_Message || params.error || null,
     payuResponse: {
+      ...existingMeta,
       txnid: params.txnid,
       mihpayid: params.mihpayid,
       mode: params.mode,
@@ -44,101 +50,169 @@ function mapPayuParamsToOrder(params) {
   };
 }
 
+function isPayuStatusSuccess(status) {
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "success" || normalized === "successful";
+}
+
+function amountsMatch(orderAmount, paidAmount) {
+  const expected = parseFloat(orderAmount);
+  const received = parseFloat(paidAmount);
+  if (Number.isNaN(expected) || Number.isNaN(received)) return true;
+  return Math.abs(expected - received) <= 0.01;
+}
+
+function getOnlinePaymentBlockReason(order) {
+  if (!order) return "Order not found.";
+  if (isCodOrder(order)) {
+    return "This order uses Cash on Delivery. Online payment is not required.";
+  }
+  if (order.status === "cancelled") {
+    return "This order has been cancelled.";
+  }
+  if (order.status === "paid") return null;
+  if (order.status !== "pending") {
+    return `Order cannot accept payment in status "${order.status}".`;
+  }
+  if (isPendingOrderExpired(order)) {
+    return "This order has expired. Please place a new order.";
+  }
+  return null;
+}
+
+function redirectToFrontend(res, status, orderId, errorMessage, paymentId) {
+  if (res.headersSent) return;
+  try {
+    const baseUrl = (
+      process.env.FRONTEND_URL || "http://localhost:5173"
+    ).replace(/\/+$/, "");
+    const path = status === "success" ? "/payment/success" : "/payment/failure";
+    const queryParams = [];
+    if (orderId)
+      queryParams.push(`orderId=${encodeURIComponent(String(orderId))}`);
+    if (errorMessage)
+      queryParams.push(`message=${encodeURIComponent(String(errorMessage))}`);
+    if (paymentId)
+      queryParams.push(`paymentId=${encodeURIComponent(String(paymentId))}`);
+    const queryString =
+      queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
+    res.redirect(302, `${baseUrl}${path}${queryString}`);
+  } catch (error) {
+    console.error("Critical error in redirectToFrontend:", error);
+    if (!res.headersSent) {
+      const baseUrl = (
+        process.env.FRONTEND_URL || "http://localhost:5173"
+      ).replace(/\/+$/, "");
+      const path =
+        status === "success" ? "/payment/success" : "/payment/failure";
+      res.redirect(302, `${baseUrl}${path}`);
+    }
+  }
+}
+
+/**
+ * Build PayU auto-submit form HTML for a pending online order.
+ * @param {import('../models').Order} order
+ */
+async function buildPayuPaymentForOrder(order) {
+  if (!order) {
+    throw new Error("Order not found.");
+  }
+  if (isCodOrder(order)) {
+    throw new Error("This order uses Cash on Delivery. Online payment is not required.");
+  }
+  if (order.status === "paid") {
+    throw new Error("Order is already paid.");
+  }
+  if (order.status !== "pending") {
+    throw new Error(`Order cannot accept payment in status "${order.status}".`);
+  }
+  if (isPendingOrderExpired(order)) {
+    throw new Error("This order has expired. Please place a new order.");
+  }
+
+  const amount = parseFloat(order.totalAmount).toFixed(2);
+  const txnid = `TXN${order.id}${Date.now()}`.substring(0, 25);
+  const productinfo = `Order #${order.id}`;
+  const firstname =
+    (order.firstName || "").trim().substring(0, 50) || "Customer";
+  const lastname =
+    (order.lastName || "").trim().substring(0, 50) || firstname;
+  const email = (order.emailAddress || "").trim();
+
+  let phone = String(order.mobileNumber || "").replace(/\D/g, "");
+  if (phone.length > 10) phone = phone.slice(-10);
+  if (phone.length < 10) {
+    throw new Error("Invalid mobile number.");
+  }
+
+  const baseUrl =
+    process.env.API_BASE_URL ||
+    `http://localhost:${process.env.PORT || 3000}`;
+  const surl = `${baseUrl}/api/payment/payu-success`;
+  const furl = `${baseUrl}/api/payment/payu-failure`;
+
+  const paymentParams = {
+    txnid,
+    amount,
+    productinfo,
+    firstname,
+    lastname: lastname || firstname,
+    email,
+    phone,
+    address1: (order.fullAddress || "").substring(0, 500),
+    city: (order.townOrCity || "").substring(0, 50),
+    state: (order.state || "").substring(0, 50),
+    country: (order.country || "India").substring(0, 50),
+    zipcode: String(order.pinCode || ""),
+    surl,
+    furl,
+    udf1: String(order.id),
+    udf2: "",
+    udf3: "",
+    udf4: "",
+    udf5: "",
+  };
+
+  if (
+    normalizePreferredPaymentMethod(order.preferredPaymentMethod) === "UPI"
+  ) {
+    paymentParams.mode = "UPI";
+  }
+
+  const payuClient = payuConfig.getPayuClient();
+  const paymentFormHtml = payuClient.paymentInitiate(paymentParams);
+  await order.update({ payuTxnId: txnid });
+
+  return { paymentFormHtml, txnid, orderId: order.id };
+}
+
 async function createPayuPayment(req, res) {
   try {
     const { orderId } = req.body;
     const userId = req.user.userId;
-    if (!orderId)
+    if (!orderId) {
       return res.status(400).json({ message: "Order ID is required." });
-    const order = await Order.findOne({
-      where: { id: orderId, userId },
-      attributes: [
-        "id",
-        "userId",
-        "totalAmount",
-        "subtotal",
-        "discountAmount",
-        "upiDiscountPercent",
-        "preferredPaymentMethod",
-        "firstName",
-        "lastName",
-        "mobileNumber",
-        "emailAddress",
-        "fullAddress",
-        "townOrCity",
-        "country",
-        "state",
-        "pinCode",
-        "status",
-        "payuTxnId",
-        "payuPaymentId",
-      ],
-    });
-    if (!order) return res.status(404).json({ message: "Order not found." });
-    if (order.status === "paid")
-      return res.status(400).json({ message: "Order is already paid." });
-
-    const amount = parseFloat(order.totalAmount).toFixed(2);
-    const txnid = `TXN${order.id}${Date.now()}`.substring(0, 25);
-    const productinfo = `Order #${order.id}`;
-    const firstname =
-      (order.firstName || "").trim().substring(0, 50) || "Customer";
-    const lastname =
-      (order.lastName || "").trim().substring(0, 50) || firstname;
-    const email = (order.emailAddress || "").trim();
-
-    let phone = String(order.mobileNumber || "").replace(/\D/g, "");
-    if (phone.length > 10) phone = phone.slice(-10);
-    if (phone.length < 10)
-      return res.status(400).json({ message: "Invalid mobile number." });
-
-    const baseUrl =
-      process.env.API_BASE_URL ||
-      `http://localhost:${process.env.PORT || 3000}`;
-    const surl = `${baseUrl}/api/payment/payu-success`;
-    const furl = `${baseUrl}/api/payment/payu-failure`;
-
-    const paymentParams = {
-      txnid,
-      amount,
-      productinfo,
-      firstname,
-      lastname: lastname || firstname,
-      email,
-      phone,
-      address1: (order.fullAddress || "").substring(0, 500),
-      city: (order.townOrCity || "").substring(0, 50),
-      state: (order.state || "").substring(0, 50),
-      country: (order.country || "India").substring(0, 50),
-      zipcode: String(order.pinCode || ""),
-      surl,
-      furl,
-      udf1: String(order.id),
-      udf2: "",
-      udf3: "",
-      udf4: "",
-      udf5: "",
-    };
-
-    if (String(order.preferredPaymentMethod || "").toUpperCase() === "UPI") {
-      paymentParams.mode = "UPI";
     }
 
-    const payuClient = payuConfig.getPayuClient();
-    const paymentFormHtml = payuClient.paymentInitiate(paymentParams);
-    order.payuTxnId = txnid;
-    await order.save();
+    const order = await Order.findOne({
+      where: { id: orderId, userId },
+    });
+    if (!order) return res.status(404).json({ message: "Order not found." });
+
+    const result = await buildPayuPaymentForOrder(order);
 
     res.status(200).json({
       message: "PayU payment form created successfully.",
-      orderId: order.id,
-      paymentFormHtml,
+      orderId: result.orderId,
+      paymentFormHtml: result.paymentFormHtml,
     });
   } catch (error) {
     console.error("Error creating PayU payment:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to create payment.", error: error.message });
+    const status = error.message?.includes("not found") ? 404 : 400;
+    res.status(status === 404 ? 404 : 400).json({
+      message: error.message || "Failed to create payment.",
+    });
   }
 }
 
@@ -148,13 +222,11 @@ async function payuSuccessCallback(req, res) {
   try {
     const params = { ...req.body, ...req.query };
 
-    // 1. Basic Key Validation
     if (params.key && params.key !== payuConfig.key) {
       console.error("PayU Success Callback - Invalid merchant key");
       return redirectToFrontend(res, "failure", null, "Invalid merchant key.");
     }
 
-    // 2. Extract Order ID from UDF1
     const orderId = params.udf1 ? parseInt(params.udf1, 10) : null;
     if (!orderId) {
       console.error("PayU Success Callback - Missing orderId (udf1)");
@@ -167,10 +239,10 @@ async function payuSuccessCallback(req, res) {
     }
 
     let order = await Order.findOne({ where: { id: orderId } });
-    if (!order)
+    if (!order) {
       return redirectToFrontend(res, "failure", orderId, "Order not found.");
+    }
 
-    // 3. Hash Verification (Security)
     if (params.hash) {
       const hashValid = verifyPayuResponseHash(params);
       if (!hashValid) {
@@ -191,13 +263,15 @@ async function payuSuccessCallback(req, res) {
       );
     }
 
-    // 4. Determine Success
-    const status = (params.status || "").toLowerCase();
-    const isSuccess =
-      status === "success" || status === "successful" || !!params.mihpayid;
+    const paymentBlockReason = getOnlinePaymentBlockReason(order);
+    if (paymentBlockReason && order.status !== "paid") {
+      return redirectToFrontend(res, "failure", orderId, paymentBlockReason);
+    }
+
+    const isSuccess = isPayuStatusSuccess(params.status);
 
     if (!isSuccess) {
-      await order.update(mapPayuParamsToOrder(params));
+      await order.update(mapPayuParamsToOrder(params, order));
       return redirectToFrontend(
         res,
         "failure",
@@ -206,7 +280,6 @@ async function payuSuccessCallback(req, res) {
       );
     }
 
-    // Prevent double processing if already paid
     if (order.status === "paid") {
       return redirectToFrontend(
         res,
@@ -217,84 +290,47 @@ async function payuSuccessCallback(req, res) {
       );
     }
 
-    // 5. Update Order Status to PAID
-    // const updateData = { ...mapPayuParamsToOrder(params), status: "paid" };
-    // await order.update(updateData);
+    if (
+      order.payuTxnId &&
+      params.txnid &&
+      order.payuTxnId !== params.txnid
+    ) {
+      return redirectToFrontend(
+        res,
+        "failure",
+        orderId,
+        "Payment session mismatch. Please retry payment for this order.",
+      );
+    }
 
-    const updateData = mapPayuParamsToOrder(params);
-    await order.update(updateData); // save PayU fields only
-    await safeStatusUpdate(order, "paid");
+    if (!amountsMatch(order.totalAmount, params.amount)) {
+      return redirectToFrontend(
+        res,
+        "failure",
+        orderId,
+        "Payment amount does not match order total.",
+      );
+    }
 
-    // 6. BACKGROUND JOBS (Non-blocking)
-    setImmediate(async () => {
-      try {
-        // Fetch complete order with items for emails and shipment
-        const completeOrder = await Order.findByPk(order.id, {
-          include: [
-            {
-              model: OrderItem,
-              as: "orderItems",
-              include: [{ model: Product, as: "product" }],
-            },
-          ],
-        });
+    const updateData = mapPayuParamsToOrder(params, order);
+    await order.update(updateData);
+    const statusUpdated = await safeStatusUpdate(order, "paid");
 
-        // A. Delhivery Shipment Creation
-        let shipResult = null;
-        if (getDelhiveryConfig().isConfigured) {
-          shipResult = await createOrderShipment(completeOrder, {
-            fetchWaybill: false,
-          });
-          if (shipResult.success) {
-            await order.update({
-              shipmentId: shipResult.shipmentId,
-              awbCode: shipResult.awb || shipResult.waybill,
-              shipmentStatus: "created",
-            });
-            completeOrder.awbCode = shipResult.awb || shipResult.waybill;
-          }
-        }
+    if (!statusUpdated) {
+      return redirectToFrontend(
+        res,
+        "failure",
+        orderId,
+        "Payment could not be confirmed for this order.",
+      );
+    }
 
-        // B. Send Order Confirmation Emails (Customer + Admin)
-        await sendOrderEmails(
-          completeOrder.toJSON(),
-          completeOrder.orderItems,
-        ).catch((err) => console.error("Order Email Error:", err.message));
-
-        // C. TRIGGER REVIEW REMINDERS (The Fix)
-        // This creates the entry in ReviewReminders table for the Cron to pick up
-        try {
-          const reminderResult = await createReviewRemindersForDeliveredOrder({
-            orderId: completeOrder.id,
-            deliveredAt: new Date(), // Baseline for the delay timer
-          });
-          console.log(
-            `[ReviewReminder] Scheduled ${reminderResult.created} items for order ${completeOrder.id}`,
-          );
-        } catch (revErr) {
-          console.error("[ReviewReminder] Failed to schedule:", revErr.message);
-        }
-
-        // D. Send Shipment Email (If AWB exists)
-        if (shipResult?.success) {
-          const trackBase = process.env.FRONTEND_URL || "";
-          const trackUrl = trackBase
-            ? `${trackBase.replace(/\/+$/, "")}/order/${order.id}/track`
-            : null;
-          await sendShipmentEmailToCustomer({
-            order: completeOrder.toJSON(),
-            awb: completeOrder.awbCode,
-            trackUrl,
-          }).catch((err) =>
-            console.error("Shipment Email Error:", err.message),
-          );
-        }
-      } catch (bgError) {
-        console.error("Post-payment background task failed:", bgError.message);
-      }
+    setImmediate(() => {
+      fulfillOrder(order.id).catch((err) =>
+        console.error("Post-payment fulfillment failed:", err.message),
+      );
     });
 
-    // Final Redirect to Frontend
     redirectToFrontend(
       res,
       "success",
@@ -352,7 +388,7 @@ async function payuFailureCallback(req, res) {
         ],
       });
       if (order) {
-        const update = mapPayuParamsToOrder(params);
+        const update = mapPayuParamsToOrder(params, order);
         await order.update(update);
       }
     }
@@ -369,58 +405,52 @@ async function payuFailureCallback(req, res) {
   }
 }
 
-function redirectToFrontend(res, status, orderId, errorMessage, paymentId) {
-  if (res.headersSent) return;
-  try {
-    const baseUrl = (
-      process.env.FRONTEND_URL || "http://localhost:5173"
-    ).replace(/\/+$/, "");
-    const path = status === "success" ? "/payment/success" : "/payment/failure";
-    const queryParams = [];
-    if (orderId)
-      queryParams.push(`orderId=${encodeURIComponent(String(orderId))}`);
-    if (errorMessage)
-      queryParams.push(`message=${encodeURIComponent(String(errorMessage))}`);
-    if (paymentId)
-      queryParams.push(`paymentId=${encodeURIComponent(String(paymentId))}`);
-    const queryString =
-      queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
-    res.redirect(302, `${baseUrl}${path}${queryString}`);
-  } catch (error) {
-    console.error("Critical error in redirectToFrontend:", error);
-    if (!res.headersSent) {
-      const baseUrl = (
-        process.env.FRONTEND_URL || "http://localhost:5173"
-      ).replace(/\/+$/, "");
-      const path =
-        status === "success" ? "/payment/success" : "/payment/failure";
-      res.redirect(302, `${baseUrl}${path}`);
-    }
-  }
-}
-
 async function verifyPayment(req, res) {
   try {
     const { orderId, txnid } = req.body;
     const userId = req.user.userId;
-    if (!orderId)
+    if (!orderId) {
       return res.status(400).json({ message: "Order ID is required." });
+    }
 
     const order = await Order.findOne({
       where: { id: orderId, userId },
       attributes: [
         "id",
         "status",
+        "preferredPaymentMethod",
+        "paymentMode",
+        "totalAmount",
         "payuTxnId",
         "payuPaymentId",
-        "paymentMode",
+        "payuResponse",
         "bankRefNo",
         "payuStatus",
         "payuError",
+        "createdAt",
       ],
     });
 
     if (!order) return res.status(404).json({ message: "Order not found." });
+
+    if (order.status === "paid") {
+      return res.status(200).json({
+        message: "Payment verified.",
+        status: "success",
+        orderId: order.id,
+      });
+    }
+
+    const paymentBlockReason = getOnlinePaymentBlockReason(order);
+    if (paymentBlockReason) {
+      const statusCode = isPendingOrderExpired(order) ? 410 : 400;
+      return res.status(statusCode).json({
+        message: paymentBlockReason,
+        status: "failed",
+        expired: isPendingOrderExpired(order),
+        orderId: order.id,
+      });
+    }
 
     const txnIdToVerify = txnid || order.payuTxnId;
     if (!txnIdToVerify) {
@@ -442,12 +472,22 @@ async function verifyPayment(req, res) {
 
     const payuStatus =
       verifyResult && (verifyResult.status || verifyResult.transaction_status);
-    const isSuccess =
-      payuStatus === "success" ||
-      payuStatus === "successful" ||
-      (verifyResult && (verifyResult.mihpayid || verifyResult.payment_id));
+    const isSuccess = isPayuStatusSuccess(payuStatus);
 
-    if (isSuccess && order.status !== "paid") {
+    if (isSuccess) {
+      const paidAmount =
+        verifyResult?.amount ||
+        verifyResult?.transaction_amount ||
+        verifyResult?.amt;
+      if (!amountsMatch(order.totalAmount, paidAmount)) {
+        return res.status(400).json({
+          message: "Payment amount does not match order total.",
+          status: "failed",
+          orderId: order.id,
+        });
+      }
+
+      const existingMeta = getExistingPayuMeta(order);
       await order.update({
         payuPaymentId:
           verifyResult.mihpayid ||
@@ -460,9 +500,23 @@ async function verifyPayment(req, res) {
           verifyResult.bank_ref_num ||
           verifyResult.bankrefno ||
           order.bankRefNo,
+        payuResponse: {
+          ...existingMeta,
+          verifyPayment: verifyResult,
+        },
       });
-      await safeStatusUpdate(order, "paid");
+      const updated = await safeStatusUpdate(order, "paid");
+      if (updated) {
+        await order.reload();
+        setImmediate(() => {
+          fulfillOrder(order.id).catch((err) =>
+            console.error("Verify-payment fulfillment failed:", err.message),
+          );
+        });
+      }
     }
+
+    await order.reload();
 
     return res.status(200).json({
       message:
@@ -483,4 +537,6 @@ module.exports = {
   payuSuccessCallback,
   payuFailureCallback,
   verifyPayment,
+  buildPayuPaymentForOrder,
+  redirectToFrontend,
 };
