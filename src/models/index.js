@@ -32,6 +32,7 @@ const Marquee = require("./marquee");
 const ProductGroup = require("./productGroup");
 const SiteLogo = require("./siteLogo");
 const SiteButtonTheme = require("./siteButtonTheme");
+const SocialLink = require("./socialLink");
 
 const models = {
   Admin,
@@ -68,6 +69,7 @@ const models = {
   ProductGroup,
   SiteLogo,
   SiteButtonTheme,
+  SocialLink,
 };
 
 // Apply associations
